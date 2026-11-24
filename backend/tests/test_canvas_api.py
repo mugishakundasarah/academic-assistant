@@ -79,6 +79,19 @@ class UnconfiguredApiTests(ApiTestCase):
                 method = self.client.post if path.endswith("/read") else self.client.get
                 self.assertEqual(method(path).status_code, 422)
 
+    def test_oversized_and_non_positive_ids_are_422(self):
+        huge = "99999999999999999999"
+        for method, path in [
+            (self.client.get, f"/api/courses/{huge}"),
+            (self.client.get, f"/api/courses/{huge}/items"),
+            (self.client.post, f"/api/notifications/{huge}/read"),
+            (self.client.get, f"/api/courses/{2**63}"),
+            (self.client.get, "/api/courses/0"),
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(method(path).status_code, 422)
+        self.assertEqual(self.client.get(f"/api/courses/{2**63 - 1}").status_code, 404)
+
 
 class LiveApiTests(ApiTestCase):
     env = {"CANVAS_BASE_URL": BASE, "CANVAS_API_TOKEN": "secret-token"}

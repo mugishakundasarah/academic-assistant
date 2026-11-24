@@ -18,20 +18,22 @@ _VOID_TAGS = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "inpu
 
 _PARAGRAPH = "\x00P"
 _LINE = "\x00L"
-# Characters that browsers strip from URLs before parsing them.
-_URL_STRIP = re.compile(r"[\t\n\r]")
+_PRE = "\x00R"
+# Any control character makes a URL suspect (browsers silently drop some of
+# them, which hides schemes such as "java\tscript:"), so such URLs are rejected.
+_URL_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def safe_url(href: object, base_url: str) -> str | None:
     """Return ``href`` as an absolute http(s) URL resolved against ``base_url``, or None.
 
-    Fragment-only, scheme-less garbage, javascript:, data:, mailto: and any other
-    non-http(s) scheme are rejected, as are URLs that embed credentials.
+    Fragment-only, javascript:, data:, mailto: and any other non-http(s) scheme
+    are rejected, as are URLs that embed credentials or contain any control
+    character (U+0000-U+001F, U+007F). Surrounding spaces are ignored.
     """
-    if not isinstance(href, str):
+    if not isinstance(href, str) or _URL_CONTROL.search(href):
         return None
-    href = _URL_STRIP.sub("", href).strip("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e\x0f"
-                                         "\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f ")
+    href = href.strip(" ")
     if not href or href.startswith("#"):
         return None
     try:
@@ -72,6 +74,8 @@ class _CanvasHTMLParser(HTMLParser):
         if tag in _BLOCK_TAGS:
             self.parts.append(_PARAGRAPH)
             if tag == "pre":
+                if not self.pre_depth:
+                    self.parts.append(_PRE)
                 self.pre_depth += 1
         elif tag in _LINE_TAGS:
             self.parts.append(_LINE)
@@ -134,9 +138,14 @@ class _CanvasHTMLParser(HTMLParser):
         raw = "".join(self.parts)
         paragraphs = []
         for block in raw.split(_PARAGRAPH):
-            lines = [line.strip() for line in block.split(_LINE)]
-            # Keep preformatted indentation intact but drop blank and edge whitespace.
-            lines = [line for line in lines if line and line != "-"]
+            if block.startswith(_PRE):
+                # Preformatted text keeps each line's indentation. Blank lines
+                # are dropped so they cannot read as paragraph breaks.
+                lines = block[len(_PRE):].replace("\r\n", "\n").replace(_LINE, "\n").split("\n")
+                lines = [line.rstrip() for line in lines if line.strip()]
+            else:
+                lines = [line.strip() for line in block.split(_LINE)]
+                lines = [line for line in lines if line and line != "-"]
             if lines:
                 paragraphs.append("\n".join(lines))
         return "\n\n".join(paragraphs)

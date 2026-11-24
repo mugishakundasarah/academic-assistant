@@ -114,6 +114,12 @@ class HtmlTests(unittest.TestCase):
         self.assertNotIn("<", text)
         self.assertEqual(links, [])
 
+    def test_preformatted_text_keeps_indentation_without_paragraph_breaks(self):
+        html = "<p>Code:</p><pre>\nint main() {\n    return 0;\n\n    // end\n}\n</pre><p>After</p>"
+        text, _ = html_to_text_and_links(html, BASE)
+        self.assertEqual(text, "Code:\n\nint main() {\n    return 0;\n    // end\n}\n\nAfter")
+        self.assertEqual(html_to_text_and_links("<pre>  a<br>    b</pre>", BASE)[0], "  a\n    b")
+
     def test_empty_and_non_string_bodies(self):
         self.assertEqual(html_to_text_and_links(None, BASE), ("", []))
         self.assertEqual(html_to_text_and_links("   ", BASE), ("", []))
@@ -149,7 +155,10 @@ class HtmlTests(unittest.TestCase):
     def test_safe_url(self):
         self.assertEqual(safe_url("/files/1", BASE), f"{BASE}/files/1")
         self.assertEqual(safe_url("http://example.org", BASE), "http://example.org")
-        for bad in ("javascript:alert(1)", "\x01javascript:alert(1)", "data:,x", "ftp://x/y", "", None, 3, "#top"):
+        self.assertEqual(safe_url("  /files/1 ", BASE), f"{BASE}/files/1")
+        for bad in ("javascript:alert(1)", "\x01javascript:alert(1)", "data:,x", "ftp://x/y", "", None, 3, "#top",
+                    "https://ok.example/a\tb", "https://ok.example/a\nb", "\nhttps://ok.example/",
+                    "https://ok.example/\x00", "https://ok.example/\x7f", "java\tscript:alert(1)"):
             with self.subTest(bad=bad):
                 self.assertIsNone(safe_url(bad, BASE))
 
@@ -160,6 +169,8 @@ class ClassificationTests(unittest.TestCase):
             (["none"], "read"),
             (["not_graded"], "read"),
             (["none", "not_graded"], "read"),
+            (["wiki_page"], "read"),
+            (["wiki_page", "none"], "read"),
             (["online_quiz"], "quiz"),
             (["discussion_topic"], "discussion"),
             (["online_upload"], "submit"),
@@ -170,6 +181,12 @@ class ClassificationTests(unittest.TestCase):
         for types, action in cases:
             with self.subTest(types=types):
                 self.assertEqual(classify(types, None)[0], action)
+
+    def test_new_quizzes_lti_is_a_quiz(self):
+        self.assertEqual(classify(["external_tool"], None, True)[0], "quiz")
+        self.assertEqual(classify(["none"], None, True)[0], "quiz")
+        self.assertEqual(classify(["external_tool"], None, False)[0], "submit")
+        self.assertEqual(classify(["external_tool"], None, "true")[0], "submit")  # only a real boolean counts
 
     def test_completion_and_missing(self):
         self.assertEqual(classify(["online_upload"], {"workflow_state": "unsubmitted"})[1:], (False, False))
@@ -238,8 +255,8 @@ class SyncTests(DatabaseTestCase):
         result = sync(self.db, self.client, NOW + timedelta(hours=1))
         self.assertEqual((result["items_added"], result["items_updated"], result["notifications_created"]), (2, 2, 4))
         self.assertEqual(self.notifications()[1:], [
-            ("due_date_changed", "assignment", 10, "Due date changed in C1: Essay is now due Nov 30, 2026 18:00 UTC"),
-            ("new_assignment", "assignment", 11, "New assignment in C1: Problem set (due Dec 4, 2026 12:00 UTC)"),
+            ("due_date_changed", "assignment", 10, "Due date changed in C1: Essay"),
+            ("new_assignment", "assignment", 11, "New assignment in C1: Problem set"),
             ("assignment_updated", "assignment", 20, "Assignment updated in C2: Reading (revised)"),
             ("new_announcement", "announcement", 200, "New announcement in C2: Exam info"),
         ])
@@ -261,7 +278,57 @@ class SyncTests(DatabaseTestCase):
         self.client.assignments_data[1][0]["due_at"] = None
         sync(self.db, self.client, NOW)
         self.assertEqual(self.notifications()[-1][0], "due_date_changed")
-        self.assertIn("no longer has a due date", self.notifications()[-1][3])
+        self.assertEqual(self.notifications()[-1][3], "Due date removed in C1: Essay no longer has a due date")
+
+    def test_messages_never_embed_dates(self):
+        sync(self.db, self.client, NOW)
+        self.client.assignments_data[1][0]["due_at"] = stamp(NOW + timedelta(days=8))
+        self.client.assignments_data[1].append({"id": 14, "name": "Lab", "due_at": stamp(NOW + timedelta(days=2))})
+        sync(self.db, self.client, NOW)
+        for kind, _, _, message in self.notifications():
+            with self.subTest(kind=kind):
+                self.assertNotRegex(message, r"UTC|20\d\d|\d\d:\d\d")
+
+    def test_completed_assignments_do_not_notify_changes(self):
+        self.client.assignments_data[1][0]["submission"] = {"workflow_state": "graded"}
+        sync(self.db, self.client, NOW)
+        self.client.assignments_data[1][0].update(due_at=stamp(NOW + timedelta(days=9)), name="Essay v2")
+        result = sync(self.db, self.client, NOW)
+        self.assertEqual((result["items_updated"], result["notifications_created"]), (1, 0))
+        # Reopened work (completed before, not after) still notifies.
+        self.client.assignments_data[1][0].update(submission={"workflow_state": "unsubmitted"}, due_at=stamp(NOW + timedelta(days=10)))
+        result = sync(self.db, self.client, NOW)
+        self.assertEqual([n[0] for n in self.notifications()][-1:], ["due_date_changed"])
+        # Work completed in the same sync as the change (not completed before) also notifies.
+        self.client.assignments_data[1][0].update(submission={"workflow_state": "submitted"}, name="Essay v3")
+        sync(self.db, self.client, NOW)
+        self.assertEqual([n[0] for n in self.notifications()][-1:], ["assignment_updated"])
+
+    def test_duplicate_ids_in_one_response_keep_last_and_do_not_notify(self):
+        duplicate = dict(self.client.assignments_data[1][0], name="Essay (final)")
+        self.client.assignments_data[1].append(duplicate)
+        self.client.announcements_data[1].append(dict(self.client.announcements_data[1][1], title="Old (edited)"))
+        first = sync(self.db, self.client, NOW)
+        self.assertEqual((first["items_added"], first["items_updated"], first["notifications_created"]), (4, 0, 1))
+        self.assertEqual(self.db.execute("SELECT title FROM canvas_items WHERE source_id = 10").fetchone()[0], "Essay (final)")
+        self.assertEqual(self.db.execute("SELECT title FROM canvas_items WHERE source_id = 101").fetchone()[0], "Old (edited)")
+        repeat = sync(self.db, self.client, NOW)
+        self.assertEqual((repeat["items_added"], repeat["items_updated"], repeat["notifications_created"]), (0, 0, 0))
+
+    def test_last_synced_at_requires_one_successful_course(self):
+        self.client.fail[1] = URLError("down")
+        self.client.fail[2] = URLError("down")
+        result = sync(self.db, self.client, NOW)
+        self.assertEqual(len(result["errors"]), 2)
+        self.assertEqual(self.count("canvas_state", "key = 'last_synced_at'"), 0)
+        del self.client.fail[2]
+        sync(self.db, self.client, NOW)
+        self.assertEqual(self.count("canvas_state", "key = 'last_synced_at'"), 1)
+
+    def test_empty_course_list_records_sync_time(self):
+        self.client.courses_data = []
+        self.assertEqual(sync(self.db, self.client, NOW)["courses"], 0)
+        self.assertEqual(self.count("canvas_state", "key = 'last_synced_at'"), 1)
 
     def test_per_course_failure_is_isolated_and_safe(self):
         self.client.fail[1] = HTTPError(f"{BASE}/api/v1/courses/1?access_token=secret-token", 403, "Forbidden", {}, None)

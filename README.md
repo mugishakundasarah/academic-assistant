@@ -53,7 +53,9 @@ FastAPI serves interactive documentation at `/docs`.
 ### Demo mode
 
 To try the app without a Canvas account, start the backend with
-`CANVAS_DEMO=1` (or put it in `backend/.env`):
+`CANVAS_DEMO=1`, or uncomment it in `backend/.env`. Demo mode is off by
+default. While it is on, it overrides any live Canvas credentials and sync never
+contacts Canvas:
 
 ```sh
 cd backend
@@ -77,7 +79,8 @@ Use a live account only after access is approved and with an
 institution-authorized token. Set `CANVAS_BASE_URL` to the institution's HTTPS
 Canvas origin (for example `https://canvas.your-school.edu`) and
 `CANVAS_API_TOKEN` to the token, either in the backend process environment or in
-`backend/.env`. Never put the token in the frontend, source control, or chat.
+`backend/.env`. Leave `CANVAS_DEMO` unset, because demo mode takes precedence
+over live credentials. Never put the token in the frontend, source control, or chat.
 `GET /api/canvas/status` reports `configured: true` once both values are valid;
 without them, and without demo mode, the sync endpoint returns 503.
 
@@ -85,7 +88,9 @@ The backend sends the token only to the configured origin, refuses redirects
 and cross-origin pagination links, and reports Canvas failures with generic
 messages such as `Canvas request failed (HTTP 401).` A failure for one course
 is listed in the sync response's `errors` and does not stop other courses.
-Only one sync runs at a time; a concurrent request returns 409.
+Within a single server process only one sync runs at a time, and a concurrent
+request returns 409. The lock is held in memory, so several server processes
+(for example, multiple uvicorn workers) can sync at the same time.
 
 ### What is stored locally
 
@@ -105,6 +110,9 @@ database as private coursework data.
 - Announcements older than 60 days are not fetched.
 - The first sync of a course is a baseline: it only notifies about
   announcements posted in the last 7 days.
+- Due date and content changes to an assignment that was already completed and
+  is still completed are stored without a notification.
+- `last_synced_at` is not updated when every course fails to sync.
 - Changes to announcements after they are first seen do not notify.
 - Canvas course IDs are used as local course IDs, so do not point one database
   at two Canvas instances (or at demo and live data).

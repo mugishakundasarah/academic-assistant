@@ -22,7 +22,7 @@ from .integrations.canvas_html import dedupe_links, html_to_text_and_links, link
 ANNOUNCEMENT_WINDOW = timedelta(days=60)
 BASELINE_ANNOUNCEMENT_WINDOW = timedelta(days=7)
 COMPLETED_STATES = frozenset({"submitted", "graded", "pending_review"})
-READ_ONLY_TYPES = frozenset({"none", "not_graded"})
+READ_ONLY_TYPES = frozenset({"none", "not_graded", "wiki_page"})
 
 # Columns compared to decide whether an existing item changed.
 _ITEM_FIELDS = (
@@ -78,13 +78,18 @@ def describe_error(error: BaseException) -> str:
 FETCH_ERRORS = (OSError, ValueError, TypeError, HTTPException)
 
 
-def classify(submission_types: object, submission: object) -> tuple[str, bool, bool]:
-    """Return ``(action, completed, missing)`` for a Canvas assignment."""
+def classify(submission_types: object, submission: object, is_quiz_lti: object = False) -> tuple[str, bool, bool]:
+    """Return ``(action, completed, missing)`` for a Canvas assignment.
+
+    Quizzes (classic ``online_quiz`` or New Quizzes, flagged by
+    ``is_quiz_lti_assignment``) win over everything else; then assignments
+    with only ``none``/``not_graded``/``wiki_page`` types are readings.
+    """
     types = {t for t in submission_types if isinstance(t, str)} if isinstance(submission_types, list) else set()
-    if types <= READ_ONLY_TYPES:
-        action = "read"
-    elif "online_quiz" in types:
+    if is_quiz_lti is True or "online_quiz" in types:
         action = "quiz"
+    elif types <= READ_ONLY_TYPES:
+        action = "read"
     elif "discussion_topic" in types:
         action = "discussion"
     else:
@@ -120,7 +125,9 @@ def normalize_assignment(record: dict, base_url: str) -> dict | None:
     if source_id is None:
         return None
     text, links = html_to_text_and_links(record.get("description"), base_url)
-    action, completed, missing = classify(record.get("submission_types"), record.get("submission"))
+    action, completed, missing = classify(
+        record.get("submission_types"), record.get("submission"), record.get("is_quiz_lti_assignment")
+    )
     return {
         "kind": "assignment",
         "source_id": source_id,
@@ -169,39 +176,40 @@ def normalize_announcement(record: dict, base_url: str) -> dict | None:
     }
 
 
-def _human_time(value: str | None) -> str:
-    parsed = parse_time(value)
-    if parsed is None:
-        return "no due date"
-    return f"{parsed:%b} {parsed.day}, {parsed.year} {parsed:%H:%M} UTC"
-
-
 def _message(kind: str, course_label: str, item: dict) -> str:
     title = item["title"]
     if kind == "new_announcement":
         return f"New announcement in {course_label}: {title}"
+    # Messages carry no dates: the UI shows the item's due date in local time.
     if kind == "new_assignment":
-        due = f" (due {_human_time(item['due_at'])})" if item["due_at"] else ""
-        return f"New assignment in {course_label}: {title}{due}"
+        return f"New assignment in {course_label}: {title}"
     if kind == "due_date_changed":
         if item["due_at"] is None:
             return f"Due date removed in {course_label}: {title} no longer has a due date"
-        return f"Due date changed in {course_label}: {title} is now due {_human_time(item['due_at'])}"
+        return f"Due date changed in {course_label}: {title}"
     return f"Assignment updated in {course_label}: {title}"
+
+
+def _unique(items) -> list[dict]:
+    """Drop repeated Canvas ids within one response, keeping the last occurrence."""
+    by_id: dict[int, dict] = {}
+    for item in items:
+        if item is not None:
+            by_id.pop(item["source_id"], None)
+            by_id[item["source_id"]] = item
+    return list(by_id.values())
 
 
 def _fetch_course(client, course_id: int, now: datetime) -> tuple[list[dict], list[dict]]:
     base_url = client.base_url
-    assignments = [
-        normalized
+    assignments = _unique(
+        normalize_assignment(record, base_url)
         for record in client.assignments(course_id, include_submission=True)
-        if (normalized := normalize_assignment(record, base_url)) is not None
-    ]
-    announcements = [
-        normalized
+    )
+    announcements = _unique(
+        normalize_announcement(record, base_url)
         for record in client.announcements(course_id, now - ANNOUNCEMENT_WINDOW, now)
-        if (normalized := normalize_announcement(record, base_url)) is not None
-    ]
+    )
     return assignments, announcements
 
 
@@ -249,7 +257,9 @@ def _store_course(connection, course_id: int, course_label: str, items: list[dic
             [values[field] for field in changed] + [stamp, existing["id"]],
         )
         totals["items_updated"] += 1
-        if item["kind"] != "assignment":
+        if item["kind"] != "assignment" or (existing["completed"] and values["completed"]):
+            # Announcement edits and changes to work that was and still is
+            # completed are stored without notifying.
             continue
         if "due_at" in changed:
             notifications.append((existing["id"], "due_date_changed", _message("due_date_changed", course_label, item)))
@@ -279,7 +289,8 @@ def sync(connection: sqlite3.Connection, client, now: datetime | None = None) ->
 
     Raises ``CourseListError`` when the course list cannot be read. Failures
     for one course are reported in ``errors`` and the remaining courses still
-    sync. Database errors propagate.
+    sync. ``last_synced_at`` is updated only when at least one course synced
+    (or the course list was empty). Database errors propagate.
     """
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(microsecond=0)
     started_at = iso(now)
@@ -307,14 +318,17 @@ def sync(connection: sqlite3.Connection, client, now: datetime | None = None) ->
         _transaction(connection, _store_course, course_id, code or name, assignments + announcements, now, totals)
 
     finished_at = iso(now + timedelta(seconds=round(time.monotonic() - clock)))
-    _transaction(
-        connection,
-        lambda c: c.execute(
-            "INSERT INTO canvas_state (key, value) VALUES ('last_synced_at', ?)"
-            " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            (finished_at,),
-        ),
-    )
+    # Record the sync time unless every course failed. An empty course list
+    # is a successful sync with nothing to store.
+    if not courses or len(errors) < len(courses):
+        _transaction(
+            connection,
+            lambda c: c.execute(
+                "INSERT INTO canvas_state (key, value) VALUES ('last_synced_at', ?)"
+                " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                (finished_at,),
+            ),
+        )
     return {
         "started_at": started_at,
         "finished_at": finished_at,

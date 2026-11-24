@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
 
 from .canvas_sync import CourseListError, iso, sync
@@ -53,6 +54,8 @@ def get_db() -> Iterator[sqlite3.Connection]:
 
 
 DB = Annotated[sqlite3.Connection, Depends(get_db)]
+# SQLite integers are signed 64-bit; larger path ids would overflow, so reject them with 422.
+Id = Annotated[int, PathParam(ge=1, le=2**63 - 1)]
 
 
 def demo_enabled() -> bool:
@@ -226,13 +229,13 @@ def list_courses(connection: DB):
 
 
 @app.get("/api/courses/{course_id}")
-def get_course(course_id: int, connection: DB):
+def get_course(course_id: Id, connection: DB):
     return course_json(connection, _course_row(connection, course_id), iso(utc_now()))
 
 
 @app.get("/api/courses/{course_id}/items")
 def course_items(
-    course_id: int,
+    course_id: Id,
     connection: DB,
     kind: Literal["assignment", "announcement"] | None = None,
 ):
@@ -297,7 +300,7 @@ def read_all_notifications(connection: DB):
 
 
 @app.post("/api/notifications/{notification_id}/read")
-def read_notification(notification_id: int, connection: DB):
+def read_notification(notification_id: Id, connection: DB):
     _notification(connection, notification_id)
     connection.execute(
         "UPDATE canvas_notifications SET read_at = ? WHERE id = ? AND read_at IS NULL",
