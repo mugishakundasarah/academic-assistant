@@ -1,0 +1,174 @@
+{
+  "1001": [
+    {
+      "id": 2001,
+      "name": "Read: Chapter 5, Recursion",
+      "description": "<p>Read <strong>Chapter 5</strong> of the course reader before Wednesday's lecture.</p><ul><li><a class=\"instructure_file_link\" href=\"/courses/1001/files/5001/download?wrap=1\" data-api-endpoint=\"https://canvas.example.com/api/v1/courses/1001/files/5001\">Course reader, Chapter 5 (PDF)</a></li><li><a href=\"https://en.cppreference.com/w/cpp/container/vector\">std::vector reference</a></li></ul><p>Optional: <a href=\"javascript:alert('not a link')\">interactive demo</a></p>",
+      "due_offset_hours": 65,
+      "html_url": "https://canvas.example.com/courses/1001/assignments/2001",
+      "points_possible": 0,
+      "submission_types": ["none"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
+    },
+    {
+      "id": 2002,
+      "name": "Assignment 3: Recursion",
+      "description": "<p>Implement the recursive functions described in the handout and submit <code>recursion.cpp</code>.</p><p><a href=\"https://canvas.example.com/courses/1001/files/5002/download\">Assignment 3 handout.pdf</a> &middot; <a href=\"/courses/1001/files/5003/download\">starter-code.zip</a></p>",
+      "due_offset_hours": 113,
+      "html_url": "https://canvas.example.com/courses/1001/assignments/2002",
+      "points_possible": 100,
+      "submission_types": ["online_upload"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false},
+      "_demo_second_sync": {"due_offset_hours": 137}
+    },
+    {
+      "id": 2003,
+      "name": "Quiz 2: Big-O Analysis",
+      "description": "<p>Ten multiple-choice questions on asymptotic analysis. 30 minutes, one attempt.</p>",
+      "due_offset_hours": -55,
+      "html_url": "https://canvas.example.com/courses/1001/quizzes/2003",
+      "points_possible": 20,
+      "submission_types": ["online_quiz"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": true}
+    },
+    {
+      "id": 2004,
+      "name": "Assignment 2: Fun with Collections",
+      "description": "<p>Use Vector, Grid, and Map to solve the three warm-up problems.</p>",
+      "due_offset_hours": -127,
+      "submitted_offset_hours": -130,
+      "html_url": "https://canvas.example.com/courses/1001/assignments/2004",
+      "points_possible": 100,
+      "submission_types": ["online_upload"],
+      "submission": {"workflow_state": "graded", "missing": false}
+    },
+    {
+      "id": 2005,
+      "name": "Section discussion: Recursion pitfalls",
+      "description": "<p>Post one bug you hit while writing recursive code and reply to two classmates.</p>",
+      "due_offset_hours": 233,
+      "html_url": "https://canvas.example.com/courses/1001/discussion_topics/2005",
+      "points_possible": 5,
+      "submission_types": ["discussion_topic"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
+    },
+    {
+      "id": 2006,
+      "name": "Assignment 4: Backtracking",
+      "description": "<p>Released after the midterm. See the <a href=\"/courses/1001/files/5004/download\">Assignment 4 handout (PDF)</a>.</p>",
+      "due_offset_hours": 353,
+      "html_url": "https://canvas.example.com/courses/1001/assignments/2006",
+      "points_possible": 100,
+      "submission_types": ["online_upload"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false},
+      "_demo_from_sync": 2
+    }
+  ],
+  "1002": [
+    {
+      "id": 3001,
+      "name": "Reading: Hobsbawm, The Age of Revolution, ch. 1-2",
+      "description": "<h3>Before seminar</h3><p>Read chapters 1 and 2. Focus on the &ldquo;dual revolution&rdquo; argument.</p><p><a href=\"/courses/1002/files/5101/download?wrap=1\">Hobsbawm ch. 1-2 (scanned PDF)</a><br><a href=\"/courses/1002/files/5102/download?wrap=1\">Reading guide questions.pdf</a></p>",
+      "due_offset_hours": 39,
+      "html_url": "https://canvas.example.com/courses/1002/assignments/3001",
+      "points_possible": null,
+      "submission_types": ["not_graded"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
+    },
+    {
+      "id": 3002,
+      "name": "Response paper 1",
+      "description": "<p>Write 750 words responding to the week 3 readings. Submit as PDF or text entry.</p><p>Rubric: <a href=\"https://canvas.example.com/courses/1002/files/5103\">response-paper-rubric.pdf</a></p>",
+      "due_offset_hours": -79,
+      "html_url": "https://canvas.example.com/courses/1002/assignments/3002",
+      "points_possible": 50,
+      "submission_types": ["online_text_entry", "online_upload"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": true}
+    },
+    {
+      "id": 3003,
+      "name": "Discussion: Causes of the 1848 revolutions",
+      "description": "<p>Which cause mattered most? Cite at least one primary source.</p>",
+      "due_offset_hours": 87,
+      "submitted_offset_hours": -4,
+      "html_url": "https://canvas.example.com/courses/1002/discussion_topics/3003",
+      "points_possible": 10,
+      "submission_types": ["discussion_topic"],
+      "submission": {"workflow_state": "submitted", "missing": false}
+    },
+    {
+      "id": 3004,
+      "name": "Primary source reading packet",
+      "description": "<p>Reference packet for the rest of the term.</p><p><a href=\"/courses/1002/files/5104/download\">Primary sources packet.pdf</a> <a href=\"data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\">inline copy</a></p>",
+      "due_at": null,
+      "html_url": "https://canvas.example.com/courses/1002/assignments/3004",
+      "points_possible": null,
+      "submission_types": ["none"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
+    },
+    {
+      "id": 3005,
+      "name": "Essay proposal",
+      "description": "<p>One-page proposal with a research question and three sources.</p>",
+      "due_offset_hours": 281,
+      "html_url": "https://canvas.example.com/courses/1002/assignments/3005",
+      "points_possible": 20,
+      "submission_types": ["online_upload"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
+    }
+  ],
+  "1003": [
+    {
+      "id": 4001,
+      "name": "Pre-lab reading: Acid-base titration",
+      "description": "<p>Read the lab handout and watch the safety video before your lab section.</p><p><a href=\"/courses/1003/files/5201/download?wrap=1\">Lab 3 handout - Titration.pdf</a></p><p><a href=\"mailto:chem31a-staff@example.com\">Email the lab staff</a></p>",
+      "due_offset_hours": 56,
+      "html_url": "https://canvas.example.com/courses/1003/assignments/4001",
+      "points_possible": 0,
+      "submission_types": ["none"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
+    },
+    {
+      "id": 4002,
+      "name": "Problem Set 4",
+      "description": "<p>Problems 4.12-4.30 (even). Show your work.</p><p><a href=\"/courses/1003/files/5202/download\">PS4.pdf</a></p>",
+      "due_offset_hours": 95,
+      "html_url": "https://canvas.example.com/courses/1003/assignments/4002",
+      "points_possible": 30,
+      "submission_types": ["online_upload"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
+    },
+    {
+      "id": 4003,
+      "name": "Quiz 3: Stoichiometry",
+      "description": "<p>Covers chapters 3 and 4.</p>",
+      "due_offset_hours": -25,
+      "submitted_offset_hours": -27,
+      "html_url": "https://canvas.example.com/courses/1003/quizzes/4003",
+      "points_possible": 15,
+      "submission_types": ["online_quiz"],
+      "submission": {"workflow_state": "graded", "missing": false}
+    },
+    {
+      "id": 4004,
+      "name": "Lab report 2",
+      "description": "<p>Upload your lab report as a single PDF.</p>",
+      "due_offset_hours": -145,
+      "submitted_offset_hours": -150,
+      "html_url": "https://canvas.example.com/courses/1003/assignments/4004",
+      "points_possible": 40,
+      "submission_types": ["online_upload"],
+      "submission": {"workflow_state": "pending_review", "missing": false}
+    },
+    {
+      "id": 4005,
+      "name": "Problem Set 5",
+      "description": "<p>Problems 5.4-5.20. Due before lecture.</p>",
+      "due_offset_hours": 263,
+      "html_url": "https://canvas.example.com/courses/1003/assignments/4005",
+      "points_possible": 30,
+      "submission_types": ["online_upload"],
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
+    }
+  ]
+}

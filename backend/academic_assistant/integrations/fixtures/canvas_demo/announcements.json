@@ -1,0 +1,79 @@
+{
+  "1001": [
+    {
+      "id": 6001,
+      "title": "Midterm room change",
+      "message": "<p>Hi all,</p><p>The midterm on Thursday is now in <strong>Hewlett 200</strong>. Seating assignments are attached; please check yours before the exam.</p><p>Practice exam: <a href=\"/courses/1001/files/5005/download?wrap=1\">practice-midterm.pdf</a></p>",
+      "posted_offset_hours": -6,
+      "html_url": "https://canvas.example.com/courses/1001/discussion_topics/6001",
+      "author": {"display_name": "Prof. Ada Lin"},
+      "attachments": [
+        {"display_name": "midterm-seating.pdf", "filename": "midterm-seating.pdf", "url": "https://canvas.example.com/files/7001/download?download_frd=1&verifier=demo7001", "content-type": "application/pdf"}
+      ]
+    },
+    {
+      "id": 6002,
+      "title": "Welcome to week 6",
+      "message": "<p>This week: recursion and backtracking. LaIR hours are extended through Friday.</p>",
+      "posted_offset_hours": -218,
+      "html_url": "https://canvas.example.com/courses/1001/discussion_topics/6002",
+      "author": {"display_name": "Prof. Ada Lin"},
+      "attachments": []
+    },
+    {
+      "id": 6003,
+      "title": "Assignment 4 released",
+      "message": "<p>Assignment 4 is out. The Assignment 3 deadline has moved by one day to give you time to finish.</p>",
+      "posted_offset_hours": 0,
+      "html_url": "https://canvas.example.com/courses/1001/discussion_topics/6003",
+      "author": {"display_name": "Sam Ortiz (Head TA)"},
+      "attachments": [],
+      "_demo_from_sync": 2
+    }
+  ],
+  "1002": [
+    {
+      "id": 6101,
+      "title": "Office hours moved to Thursday",
+      "message": "<p>This week's office hours move to <em>Thursday 2-4pm</em> in the history corner, room 307.</p>",
+      "posted_offset_hours": -30,
+      "html_url": "https://canvas.example.com/courses/1002/discussion_topics/6101",
+      "author": {"display_name": "Dr. Miriam Kovacs"},
+      "attachments": []
+    },
+    {
+      "id": 6102,
+      "title": "Updated reading list",
+      "message": "<p>I've swapped one of the week 8 readings. The updated list is attached.</p>",
+      "posted_offset_hours": -362,
+      "html_url": "https://canvas.example.com/courses/1002/discussion_topics/6102",
+      "author": {"display_name": "Dr. Miriam Kovacs"},
+      "attachments": [
+        {"display_name": "reading-list-v2.pdf", "filename": "reading-list-v2.pdf", "url": "https://canvas.example.com/files/7101/download?download_frd=1&verifier=demo7101", "content-type": "application/pdf"}
+      ]
+    }
+  ],
+  "1003": [
+    {
+      "id": 6201,
+      "title": "Lab safety reminder",
+      "message": "<p>Closed-toe shoes and goggles are required for Lab 3. Review the checklist before your section.</p>",
+      "posted_offset_hours": -74,
+      "html_url": "https://canvas.example.com/courses/1003/discussion_topics/6201",
+      "author": {"display_name": "Lab Coordinator"},
+      "attachments": [
+        {"display_name": "lab-safety-checklist.pdf", "filename": "lab-safety-checklist.pdf", "url": "https://canvas.example.com/files/7201/download?download_frd=1&verifier=demo7201", "content-type": "application/pdf"},
+        {"display_name": "goggles-policy.docx", "filename": "goggles-policy.docx", "url": "https://canvas.example.com/files/7202/download?download_frd=1&verifier=demo7202", "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+      ]
+    },
+    {
+      "id": 6202,
+      "title": "Problem Set 3 solutions posted",
+      "message": "<p>Solutions are in <a href=\"/courses/1003/files/5203/download\">PS3-solutions.pdf</a>. Regrade requests are open for one week.</p>",
+      "posted_offset_hours": -290,
+      "html_url": "https://canvas.example.com/courses/1003/discussion_topics/6202",
+      "author": {"display_name": "Prof. Daniel Osei"},
+      "attachments": []
+    }
+  ]
+}

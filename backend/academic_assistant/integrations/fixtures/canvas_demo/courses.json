@@ -1,0 +1,27 @@
+[
+  {
+    "id": 1001,
+    "name": "CS 106B: Programming Abstractions",
+    "course_code": "CS 106B",
+    "workflow_state": "available",
+    "enrollments": [{"type": "student", "enrollment_state": "active"}]
+  },
+  {
+    "id": 1002,
+    "name": "HIST 210: Modern European History",
+    "course_code": "HIST 210",
+    "workflow_state": "available",
+    "enrollments": [{"type": "student", "enrollment_state": "active"}]
+  },
+  {
+    "id": 1003,
+    "name": "CHEM 31A: Chemical Principles",
+    "course_code": "CHEM 31A",
+    "workflow_state": "available",
+    "enrollments": [{"type": "student", "enrollment_state": "active"}]
+  },
+  {
+    "id": 1099,
+    "access_restricted_by_date": true
+  }
+]
