@@ -28,7 +28,7 @@ class MigrationTests(unittest.TestCase):
             migrate(path)
             migrate(path)
             self.assertEqual(schema_version(path), LATEST_VERSION)
-            self.assertEqual(LATEST_VERSION, 2)
+            self.assertEqual(LATEST_VERSION, 3)
 
     def test_schema_check_rejects_missing_migration_record(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -54,13 +54,46 @@ class MigrationTests(unittest.TestCase):
                 schema_version(path)
             migrate(path)
             migrate(path)
-            self.assertEqual(schema_version(path), 2)
+            self.assertEqual(schema_version(path), 3)
             with closing(sqlite3.connect(path)) as connection:
                 versions = connection.execute("SELECT version, applied_at FROM schema_migrations ORDER BY version").fetchall()
                 tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-            self.assertEqual([v for v, _ in versions], [1, 2])
+            self.assertEqual([v for v, _ in versions], [1, 2, 3])
             self.assertEqual(versions[0][1], "v1-marker")
             self.assertLessEqual({"canvas_courses", "canvas_items", "canvas_notifications", "canvas_state"}, tables)
+
+    def test_upgrades_version_2_database_keeping_notifications(self):
+        from academic_assistant.database import MIGRATIONS
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "local.sqlite3"
+            # Build a version 2 database exactly as the v2 release did.
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute(
+                    "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY,"
+                    " applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+                )
+                for version, statements in MIGRATIONS[:2]:
+                    for statement in statements:
+                        connection.execute(statement)
+                    connection.execute("INSERT INTO schema_migrations (version) VALUES (?)", (version,))
+                connection.execute("INSERT INTO canvas_courses (id, name) VALUES (1, 'C')")
+                connection.execute(
+                    "INSERT INTO canvas_items (kind, source_id, course_id, title, due_at, first_seen_at, updated_at)"
+                    " VALUES ('assignment', 7, 1, 't', '2026-12-01T00:00:00Z', 'x', 'x')"
+                )
+                connection.execute(
+                    "INSERT INTO canvas_notifications (item_id, type, message, created_at)"
+                    " VALUES (1, 'new_assignment', 'm', 'x')"
+                )
+            migrate(path)
+            migrate(path)
+            self.assertEqual(schema_version(path), 3)
+            with closing(sqlite3.connect(path)) as connection:
+                rows = connection.execute("SELECT message, due_at FROM canvas_notifications").fetchall()
+                columns = [row[1] for row in connection.execute("PRAGMA table_info(canvas_notifications)")]
+            self.assertEqual(rows, [("m", None)])
+            self.assertEqual(columns.count("due_at"), 1)
 
     def test_items_are_unique_by_kind_and_source_id(self):
         with tempfile.TemporaryDirectory() as directory:

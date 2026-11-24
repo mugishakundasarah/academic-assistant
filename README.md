@@ -98,7 +98,8 @@ The SQLite file holds, for each synced course: the course name and code;
 assignment titles, plain-text descriptions, due dates, points, submission and
 missing status; announcement titles, plain-text messages, authors and post
 dates; the links found in them (including Canvas attachment URLs, which can
-carry a per-file `verifier` parameter); and in-app notifications. Canvas HTML
+carry a per-file `verifier` parameter); and in-app notifications, each with
+the due date it announced. Canvas HTML
 is converted to plain text and only absolute `http(s)` links are kept. The
 backend never downloads Canvas files and never stores the API token. Treat the
 database as private coursework data.

@@ -65,6 +65,9 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
             )""",
         ),
     ),
+    # Version 3 snapshots the item's due date when a notification is created,
+    # so old notifications keep the date they announced. Existing rows get NULL.
+    (3, ("ALTER TABLE canvas_notifications ADD COLUMN due_at TEXT",)),
 )
 
 LATEST_VERSION = MIGRATIONS[-1][0]

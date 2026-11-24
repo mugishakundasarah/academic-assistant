@@ -152,13 +152,25 @@ class HtmlTests(unittest.TestCase):
         ])
         self.assertIn("js", text)  # anchor text stays readable even when the link is dropped
 
+    def test_wrapped_urls_drop_tab_and_newlines_like_browsers(self):
+        self.assertEqual(safe_url("https://ok.example/a\tb", BASE), "https://ok.example/ab")
+        self.assertEqual(safe_url("\nhttps://ok.example/long\r\n/path", BASE), "https://ok.example/long/path")
+        self.assertEqual(safe_url("/courses/1/files/\n9/download", BASE), f"{BASE}/courses/1/files/9/download")
+        _, links = html_to_text_and_links('<a href="https://ok.example/very/\n\tlong">Doc</a>', BASE)
+        self.assertEqual(links[0]["url"], "https://ok.example/very/long")
+        self.assertIsNone(safe_url("https://ok.example/a\x0cb", BASE))
+
+    def test_nul_in_text_cannot_forge_paragraph_markers(self):
+        text, _ = html_to_text_and_links("<p>a\x00Pb\x00Lc\x00R</p>", BASE)
+        self.assertEqual(text, "aPbLcR")
+
     def test_safe_url(self):
         self.assertEqual(safe_url("/files/1", BASE), f"{BASE}/files/1")
         self.assertEqual(safe_url("http://example.org", BASE), "http://example.org")
         self.assertEqual(safe_url("  /files/1 ", BASE), f"{BASE}/files/1")
         for bad in ("javascript:alert(1)", "\x01javascript:alert(1)", "data:,x", "ftp://x/y", "", None, 3, "#top",
-                    "https://ok.example/a\tb", "https://ok.example/a\nb", "\nhttps://ok.example/",
-                    "https://ok.example/\x00", "https://ok.example/\x7f", "java\tscript:alert(1)"):
+                    "https://ok.example/\x00", "https://ok.example/\x7f", "https://ok.example/a\x1bb",
+                    "\x0bhttps://ok.example/", "java\tscript:alert(1)", "java\nscript:alert(1)"):
             with self.subTest(bad=bad):
                 self.assertIsNone(safe_url(bad, BASE))
 
@@ -279,6 +291,32 @@ class SyncTests(DatabaseTestCase):
         sync(self.db, self.client, NOW)
         self.assertEqual(self.notifications()[-1][0], "due_date_changed")
         self.assertEqual(self.notifications()[-1][3], "Due date removed in C1: Essay no longer has a due date")
+
+    def notification_due_dates(self):
+        return [tuple(row) for row in self.db.execute(
+            "SELECT type, due_at FROM canvas_notifications ORDER BY id"
+        )]
+
+    def test_notifications_snapshot_due_date(self):
+        a, b, c = (stamp(NOW + timedelta(days=d)) for d in (3, 5, 7))
+        self.assertEqual(self.client.assignments_data[1][0]["due_at"], a)
+        sync(self.db, self.client, NOW)
+        for due in (b, None, c):
+            self.client.assignments_data[1][0]["due_at"] = due
+            sync(self.db, self.client, NOW)
+        self.client.assignments_data[1].append({"id": 15, "name": "New", "due_at": c})
+        self.client.announcements_data[2].append({"id": 300, "title": "Hi", "posted_at": stamp(NOW)})
+        sync(self.db, self.client, NOW)
+        self.assertEqual(self.notification_due_dates(), [
+            ("new_announcement", None),
+            ("due_date_changed", b),
+            ("due_date_changed", None),
+            ("due_date_changed", c),
+            ("new_assignment", c),
+            ("new_announcement", None),
+        ])
+        # The item itself shows the current due date; the snapshots do not move.
+        self.assertEqual(self.db.execute("SELECT due_at FROM canvas_items WHERE source_id = 10").fetchone()[0], c)
 
     def test_messages_never_embed_dates(self):
         sync(self.db, self.client, NOW)

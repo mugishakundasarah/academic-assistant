@@ -61,7 +61,7 @@ class UnconfiguredApiTests(ApiTestCase):
         self.assertIn("CANVAS_BASE_URL", response.json()["detail"])
 
     def test_health_reports_latest_schema(self):
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "schema_version": 2})
+        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "schema_version": 3})
 
     def test_empty_lists_and_404s(self):
         self.assertEqual(self.client.get("/api/courses").json(), {"courses": []})
@@ -169,7 +169,10 @@ class LiveApiTests(ApiTestCase):
         self.assertEqual(listing["unread_count"], 2)
         self.assertEqual([n["type"] for n in listing["notifications"]], ["due_date_changed", "new_announcement"])
         notification = listing["notifications"][0]
-        self.assertEqual(set(notification), {"id", "type", "message", "created_at", "read_at", "item"})
+        self.assertEqual(set(notification), {"id", "type", "message", "created_at", "read_at", "due_at", "item"})
+        self.assertEqual(notification["due_at"], notification["item"]["due_at"])
+        self.assertRegex(notification["due_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertIsNone(listing["notifications"][1]["due_at"])  # announcement
         self.assert_item_shape(notification["item"])
         self.assertEqual(notification["item"]["title"], "Essay")
 

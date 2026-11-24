@@ -19,8 +19,9 @@ _VOID_TAGS = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "inpu
 _PARAGRAPH = "\x00P"
 _LINE = "\x00L"
 _PRE = "\x00R"
-# Any control character makes a URL suspect (browsers silently drop some of
-# them, which hides schemes such as "java\tscript:"), so such URLs are rejected.
+# Browsers drop tab, LF and CR anywhere in a URL (so wrapped hrefs work); do the
+# same, then reject any URL that still contains a control character.
+_URL_STRIP = re.compile(r"[\t\n\r]")
 _URL_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -28,10 +29,14 @@ def safe_url(href: object, base_url: str) -> str | None:
     """Return ``href`` as an absolute http(s) URL resolved against ``base_url``, or None.
 
     Fragment-only, javascript:, data:, mailto: and any other non-http(s) scheme
-    are rejected, as are URLs that embed credentials or contain any control
-    character (U+0000-U+001F, U+007F). Surrounding spaces are ignored.
+    are rejected, as are URLs that embed credentials. Tab, LF and CR are removed
+    first, as browsers do; any other control character (U+0000-U+001F, U+007F)
+    rejects the URL. Surrounding spaces are ignored.
     """
-    if not isinstance(href, str) or _URL_CONTROL.search(href):
+    if not isinstance(href, str):
+        return None
+    href = _URL_STRIP.sub("", href)
+    if _URL_CONTROL.search(href):
         return None
     href = href.strip(" ")
     if not href or href.startswith("#"):
@@ -113,6 +118,9 @@ class _CanvasHTMLParser(HTMLParser):
     def handle_data(self, data):
         if self.hidden_depth:
             return
+        # NUL never appears in text, and removing it keeps the "\x00"-prefixed
+        # internal markers from colliding with parsed content.
+        data = data.replace("\x00", "")
         if not self.pre_depth:
             data = re.sub(r"\s+", " ", data)
             if data.startswith(" ") and self.parts and self.parts[-1].endswith(" "):

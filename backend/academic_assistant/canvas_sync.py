@@ -227,7 +227,7 @@ def _store_course(connection, course_id: int, course_label: str, items: list[dic
         "SELECT synced_at IS NULL FROM canvas_courses WHERE id = ?", (course_id,)
     ).fetchone()[0]
     recent_cutoff = iso(now - BASELINE_ANNOUNCEMENT_WINDOW)
-    notifications: list[tuple[int, str, str]] = []
+    notifications: list[tuple[int, str, str, dict]] = []
     for item in items:
         values = dict(item, course_id=course_id, links_json=json.dumps(item["links"]))
         existing = connection.execute(
@@ -244,9 +244,9 @@ def _store_course(connection, course_id: int, course_label: str, items: list[dic
             item_id = cursor.lastrowid
             if item["kind"] == "announcement":
                 if not baseline or (item["posted_at"] is not None and item["posted_at"] >= recent_cutoff):
-                    notifications.append((item_id, "new_announcement", _message("new_announcement", course_label, item)))
+                    notifications.append((item_id, "new_announcement", _message("new_announcement", course_label, item), item))
             elif not baseline:
-                notifications.append((item_id, "new_assignment", _message("new_assignment", course_label, item)))
+                notifications.append((item_id, "new_assignment", _message("new_assignment", course_label, item), item))
             continue
 
         changed = [field for field in _ITEM_FIELDS if existing[field] != values[field]]
@@ -262,13 +262,15 @@ def _store_course(connection, course_id: int, course_label: str, items: list[dic
             # completed are stored without notifying.
             continue
         if "due_at" in changed:
-            notifications.append((existing["id"], "due_date_changed", _message("due_date_changed", course_label, item)))
+            notifications.append((existing["id"], "due_date_changed", _message("due_date_changed", course_label, item), item))
         if "title" in changed or "text" in changed:
-            notifications.append((existing["id"], "assignment_updated", _message("assignment_updated", course_label, item)))
+            notifications.append((existing["id"], "assignment_updated", _message("assignment_updated", course_label, item), item))
 
     connection.executemany(
-        "INSERT INTO canvas_notifications (item_id, type, message, created_at) VALUES (?, ?, ?, ?)",
-        [(item_id, kind, message, stamp) for item_id, kind, message in notifications],
+        "INSERT INTO canvas_notifications (item_id, type, message, created_at, due_at) VALUES (?, ?, ?, ?, ?)",
+        # due_at snapshots the item's due date at notification time (None for
+        # announcements and for a removed due date).
+        [(item_id, kind, message, stamp, item["due_at"]) for item_id, kind, message, item in notifications],
     )
     totals["notifications_created"] += len(notifications)
     connection.execute("UPDATE canvas_courses SET synced_at = ? WHERE id = ?", (stamp, course_id))

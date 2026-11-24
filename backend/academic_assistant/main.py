@@ -133,6 +133,7 @@ def course_json(connection: sqlite3.Connection, row: sqlite3.Row, now: str) -> d
 
 
 _NOTIFICATION_SELECT = """SELECT n.id AS notification_id, n.type, n.message, n.created_at, n.read_at,
+                                 n.due_at AS notification_due_at,
                                  i.*, c.name AS course_name
                           FROM canvas_notifications n
                           JOIN canvas_items i ON i.id = n.item_id
@@ -146,6 +147,7 @@ def notification_json(row: sqlite3.Row) -> dict:
         "message": row["message"],
         "created_at": row["created_at"],
         "read_at": row["read_at"],
+        "due_at": row["notification_due_at"],
         "item": item_json(row),
     }
 
