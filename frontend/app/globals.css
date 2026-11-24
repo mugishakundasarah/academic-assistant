@@ -1,0 +1,45 @@
+:root {
+  background: #f4f6f4;
+  color: #182b26;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  min-width: 240px;
+  margin: 0;
+}
+
+main {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: clamp(3rem, 10vw, 8rem) 1.5rem;
+}
+
+h1 {
+  margin: 0 0 1.5rem;
+  font-size: clamp(2rem, 6vw, 4rem);
+  letter-spacing: -0.045em;
+}
+
+p {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #c5d0c9;
+  border-radius: 0.4rem;
+  background: #fff;
+}
+
+p::before {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: #a04c23;
+  content: "";
+}
+
+p[data-connected="true"]::before {
+  background: #2e7049;
+}

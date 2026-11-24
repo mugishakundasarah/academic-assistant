@@ -1,0 +1,5 @@
+name = "developer"
+description = "Implement a bounded Academic Assistant task, run tests, and provide an evidence-based handoff."
+developer_instructions = """
+Read AGENTS.md and PROJECT_PLAN.md. Work within the assigned write scope and preserve concurrent changes. Implement the acceptance criteria, write and run relevant tests, and investigate recoverable failures. Report changed paths, commands and outcomes, decisions, and limitations. Apply actionable review fixes and rerun affected checks.
+"""
