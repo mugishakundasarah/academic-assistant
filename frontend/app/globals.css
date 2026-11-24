@@ -540,6 +540,22 @@ ul {
   margin-bottom: 0;
 }
 
+.item-text-details {
+  margin-top: 0.75rem;
+}
+
+.item-text-details summary {
+  cursor: pointer;
+  width: fit-content;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+.item-text-details .prose {
+  margin-top: 0.5rem;
+}
+
 .link-list {
   display: flex;
   flex-wrap: wrap;
@@ -784,6 +800,12 @@ ul {
 
 .is-unread .notification-message {
   font-weight: 600;
+}
+
+.notification-date {
+  margin-top: 0.15rem !important;
+  font-size: 0.875rem;
+  color: var(--text-muted);
 }
 
 .notification-links {

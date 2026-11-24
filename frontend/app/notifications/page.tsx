@@ -3,7 +3,7 @@ import NextLink from "next/link";
 import { getNotifications, type Notification } from "../_lib/api";
 import { formatDateTime, formatRelative, parseDate } from "../_lib/format";
 import { markAllRead, markRead } from "../actions";
-import { BackendDown, EmptyState, ExternalLink, SiteHeader } from "../components/ui";
+import { BackendDown, DateTime, EmptyState, ExternalLink, SiteHeader } from "../components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +32,15 @@ function NotificationRow({ notification, now }: { notification: Notification; no
           ) : null}
         </p>
         <p className="notification-message">{notification.message}</p>
+        {item.kind === "assignment" && item.due_at ? (
+          <p className="notification-date">
+            <DateTime value={item.due_at} prefix="Due" now={now} />
+          </p>
+        ) : item.kind === "announcement" && item.posted_at ? (
+          <p className="notification-date">
+            <DateTime value={item.posted_at} prefix="Posted" now={now} />
+          </p>
+        ) : null}
         <p className="notification-links">
           <NextLink href={`/courses/${item.course_id}#item-${item.id}`}>
             View in {item.course_name}

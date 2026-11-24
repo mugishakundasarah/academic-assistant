@@ -96,6 +96,19 @@ export function Paragraphs({ text }: { text: string }) {
   );
 }
 
+/** Assignment instructions: shown inline when short, collapsed when long. */
+export function ItemText({ text, collapseAfter }: { text: string; collapseAfter: number }) {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= collapseAfter) return <Paragraphs text={trimmed} />;
+  return (
+    <details className="item-text-details">
+      <summary>Instructions</summary>
+      <Paragraphs text={trimmed} />
+    </details>
+  );
+}
+
 export function LinkList({ links }: { links: Link[] }) {
   const safeLinks = links.filter((link) => safeHref(link.url));
   if (safeLinks.length === 0) return null;
@@ -180,7 +193,7 @@ export function ItemCard({
           <span className="points"> · {item.points_possible} pts</span>
         ) : null}
       </p>
-      {featured ? <Paragraphs text={item.text} /> : null}
+      <ItemText text={item.text} collapseAfter={featured ? 800 : 300} />
       <LinkList links={item.links} />
       <ExternalLink href={item.html_url} className="canvas-link">
         Open in Canvas
