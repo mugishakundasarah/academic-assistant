@@ -48,6 +48,11 @@ export type Notification = {
   message: string;
   created_at: string;
   read_at: string | null;
+  /**
+   * Assignment due date as it was when the notification was created; null when
+   * there was none. Optional so an older backend without the field still works.
+   */
+  due_at?: string | null;
   item: Item;
 };
 

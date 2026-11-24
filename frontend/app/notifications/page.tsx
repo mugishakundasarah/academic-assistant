@@ -32,9 +32,9 @@ function NotificationRow({ notification, now }: { notification: Notification; no
           ) : null}
         </p>
         <p className="notification-message">{notification.message}</p>
-        {item.kind === "assignment" && item.due_at ? (
+        {item.kind === "assignment" && notification.due_at ? (
           <p className="notification-date">
-            <DateTime value={item.due_at} prefix="Due" now={now} />
+            <DateTime value={notification.due_at} prefix="Due" now={now} />
           </p>
         ) : item.kind === "announcement" && item.posted_at ? (
           <p className="notification-date">
