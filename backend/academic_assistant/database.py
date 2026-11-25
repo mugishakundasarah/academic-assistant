@@ -12,6 +12,27 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+def _carry_sequence(source: str, target: str) -> tuple[str, ...]:
+    """Statements that give ``target`` at least ``source``'s AUTOINCREMENT mark."""
+    return (
+        f"""INSERT INTO sqlite_sequence (name, seq)
+            SELECT '{target}', 0 WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = '{target}')""",
+        f"""UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE(
+                (SELECT MAX(seq) FROM sqlite_sequence WHERE name = '{source}'), 0))
+            WHERE name = '{target}'""",
+    )
+
+
+def _raise_sequence_to_max_id(table: str) -> tuple[str, ...]:
+    """Statements that raise ``table``'s AUTOINCREMENT mark to at least its highest id."""
+    return (
+        f"""INSERT INTO sqlite_sequence (name, seq)
+            SELECT '{table}', 0 WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = '{table}')""",
+        f"""UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE((SELECT MAX(id) FROM {table}), 0))
+            WHERE name = '{table}'""",
+    )
+
+
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     # Version 1 only creates the migration ledger itself.
     (1, ()),
@@ -86,6 +107,13 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     # table, and sqlite_sequence follows the rename). Exactly one of item_id
     # and ed_thread_id is set. ed_threads.updated_at is Ed's own updated_at;
     # text is NULL until it has been read from Ed.
+    #
+    # The old table's AUTOINCREMENT high-water mark (which can exceed the
+    # highest surviving id) is carried over to the copy before the old table
+    # is dropped. This was added after v5 first ran on development
+    # databases: it changes nothing for a database already at v5 (version 6
+    # repairs those as far as possible) and only makes a v4 -> v5 upgrade
+    # keep the mark.
     (
         5,
         (
@@ -127,10 +155,27 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
             )""",
             """INSERT INTO canvas_notifications_v5 (id, item_id, type, message, created_at, read_at, due_at)
                SELECT id, item_id, type, message, created_at, read_at, due_at FROM canvas_notifications""",
+            *_carry_sequence("canvas_notifications", "canvas_notifications_v5"),
             "DROP TABLE canvas_notifications",
             "ALTER TABLE canvas_notifications_v5 RENAME TO canvas_notifications",
             "CREATE INDEX canvas_notifications_unread ON canvas_notifications (read_at, created_at)",
             "CREATE INDEX canvas_notifications_ed_thread ON canvas_notifications (ed_thread_id)",
+        ),
+    ),
+    # Version 6 stores the student's local "done" mark for a Canvas item,
+    # independent of Canvas' own completed flag (sync never touches it). It
+    # also repairs canvas_notifications' AUTOINCREMENT mark for databases
+    # whose v5 rebuild ran before the mark was carried over: the original
+    # mark is gone, so the repair raises it to at least the highest id (a
+    # no-op when it already is), and new ids never reuse a surviving one.
+    (
+        6,
+        (
+            """CREATE TABLE canvas_item_done (
+                item_id INTEGER PRIMARY KEY REFERENCES canvas_items (id),
+                done_at TEXT NOT NULL
+            )""",
+            *_raise_sequence_to_max_id("canvas_notifications"),
         ),
     ),
 )

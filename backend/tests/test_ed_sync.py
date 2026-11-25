@@ -99,6 +99,26 @@ class MatchingTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIsNone(normalize_course_code(value))
 
+    def test_spaced_letter_suffix_does_not_collide(self):
+        # Regression: "CS 106 A" and "CS 106 B" both became "CS106".
+        self.assertEqual(normalize_course_code("CS 106 A"), "CS106A")
+        self.assertEqual(normalize_course_code("CS 106 B"), "CS106B")
+        self.assertEqual(normalize_course_code("CS 106 B: Programming Abstractions"), "CS106B")
+        self.assertEqual(normalize_course_code("CS 106 B"), normalize_course_code("CS106B"))
+        # A following word is not a suffix.
+        self.assertEqual(normalize_course_code("CS 106 Fall 2026"), "CS106")
+        self.assertEqual(normalize_course_code("CS 106A/B"), "CS106A")
+
+    def test_leading_term_prefix_is_not_the_subject(self):
+        # Regression: "F26-CS-106B" became "F26CS" and "AUT26 CS 106B" became "AUT26".
+        for value in ("F26-CS-106B", "AUT26 CS 106B", "Fall 2026 CS 106B", "2026-CS-106B", "SP26 CS 106B"):
+            with self.subTest(value=value):
+                self.assertEqual(normalize_course_code(value), "CS106B")
+        # Ambiguous input is no match rather than a false match.
+        for value in ("F26CS106B", "Fall 2026", "AUT26", "Fall 2026 Chemistry"):
+            with self.subTest(value=value):
+                self.assertIsNone(normalize_course_code(value))
+
 
 class FilterTests(unittest.TestCase):
     def test_keeps_recent_announcements_and_pinned_threads_only(self):
@@ -152,6 +172,18 @@ class EdSyncTests(EdSyncTestCase):
         result = sync(self.db, self.fake, NOW)
         self.assertEqual((result["threads_added"], result["notifications_created"]), (3, 2))
         self.assertEqual([n[0] for n in self.ed_notifications()], [11, 21, 16, 18])
+
+    def test_later_syncs_do_not_notify_announcements_older_than_the_window(self):
+        # Regression: a new pinned announcement older than THREAD_WINDOW notified after the baseline.
+        sync(self.db, self.fake, NOW)
+        self.fake.threads_data[1] += [
+            summary(19, age=timedelta(days=45), pinned=True),   # stored (pinned) but not announced
+            summary(20, age=timedelta(days=29), pinned=True),   # inside the window: announced
+        ]
+        result = sync(self.db, self.fake, NOW)
+        self.assertEqual((result["threads_added"], result["notifications_created"]), (2, 1))
+        self.assertEqual([n[0] for n in self.ed_notifications()], [11, 21, 20])
+        self.assertIn(19, self.thread_ids())
 
     def test_changes_update_rows_without_notifying(self):
         sync(self.db, self.fake, NOW)
@@ -300,7 +332,7 @@ class MigrationV5Tests(unittest.TestCase):
                 )
             migrate(path)
             migrate(path)
-            self.assertEqual((schema_version(path), LATEST_VERSION), (5, 5))
+            self.assertEqual((schema_version(path), LATEST_VERSION), (6, 6))
             with closing(connect(path)) as connection:
                 rows = [tuple(r) for r in connection.execute(
                     "SELECT id, item_id, ed_thread_id, type, message, read_at, due_at FROM canvas_notifications ORDER BY id"
@@ -321,7 +353,89 @@ class MigrationV5Tests(unittest.TestCase):
                 self.assertEqual(cursor.lastrowid, 9)
                 self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
                 versions = [r[0] for r in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
-            self.assertEqual(versions, [1, 2, 3, 4, 5])
+            self.assertEqual(versions, [1, 2, 3, 4, 5, 6])
+
+    @staticmethod
+    def _build(path, versions):
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY,"
+                " applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            for version, statements in MIGRATIONS[:versions]:
+                for statement in statements:
+                    connection.execute(statement)
+                connection.execute("INSERT INTO schema_migrations (version) VALUES (?)", (version,))
+            connection.execute("INSERT INTO canvas_courses (id, name) VALUES (1, 'C')")
+            connection.execute(
+                "INSERT INTO canvas_items (kind, source_id, course_id, title, first_seen_at, updated_at)"
+                " VALUES ('assignment', 7, 1, 't', 'x', 'x')"
+            )
+
+    @staticmethod
+    def _sequence(connection):
+        return connection.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name = 'canvas_notifications'"
+        ).fetchall()
+
+    def test_v5_rebuild_keeps_the_autoincrement_high_water_mark(self):
+        # Regression: ids above the highest surviving row (here 20, deleted) were reused after v5.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "local.sqlite3"
+            self._build(path, 4)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.executemany(
+                    "INSERT INTO canvas_notifications (id, item_id, type, message, created_at) VALUES (?, 1, 'new_assignment', 'm', 'x')",
+                    [(3,), (20,)],
+                )
+                connection.execute("DELETE FROM canvas_notifications WHERE id = 20")
+            migrate(path)
+            with closing(connect(path)) as connection:
+                self.assertEqual([tuple(r) for r in self._sequence(connection)], [(20,)])
+                cursor = connection.execute(
+                    "INSERT INTO canvas_notifications (item_id, type, message, created_at) VALUES (1, 'new_assignment', 'c', 'x')"
+                )
+                self.assertEqual(cursor.lastrowid, 21)
+
+    def test_v6_repairs_a_v5_database_whose_mark_is_below_the_highest_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "local.sqlite3"
+            self._build(path, 5)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.executemany(
+                    "INSERT INTO canvas_notifications (id, item_id, type, message, created_at) VALUES (?, 1, 'new_assignment', 'm', 'x')",
+                    [(4,), (9,)],
+                )
+                # Simulate a damaged or missing mark left by the old v5 rebuild.
+                connection.execute("DELETE FROM sqlite_sequence WHERE name = 'canvas_notifications'")
+            migrate(path)
+            migrate(path)
+            self.assertEqual(schema_version(path), 6)
+            with closing(connect(path)) as connection:
+                self.assertEqual([tuple(r) for r in self._sequence(connection)], [(9,)])
+                cursor = connection.execute(
+                    "INSERT INTO canvas_notifications (item_id, type, message, created_at) VALUES (1, 'new_assignment', 'c', 'x')"
+                )
+                self.assertEqual(cursor.lastrowid, 10)
+                tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+                self.assertIn("canvas_item_done", tables)
+
+    def test_v6_keeps_a_higher_mark_and_handles_an_empty_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "local.sqlite3"
+            self._build(path, 5)
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute("DELETE FROM sqlite_sequence WHERE name = 'canvas_notifications'")
+                connection.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('canvas_notifications', 40)")
+            migrate(path)
+            with closing(connect(path)) as connection:
+                self.assertEqual([tuple(r) for r in self._sequence(connection)], [(40,)])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "empty.sqlite3"
+            self._build(path, 5)
+            migrate(path)
+            with closing(connect(path)) as connection:
+                self.assertEqual([tuple(r) for r in self._sequence(connection)], [(0,)])
 
 
 if __name__ == "__main__":

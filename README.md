@@ -32,8 +32,9 @@ npm ci
 npm run dev
 ```
 
-Open the URL printed by Next.js. The status page calls the backend server-side.
-Set `BACKEND_URL` in the frontend process if FastAPI runs on a different address.
+Open the URL printed by Next.js. Every page calls the backend server-side; the
+browser only talks to Next.js. Set `BACKEND_URL` in the frontend process if
+FastAPI runs on a different address.
 
 ## Checks
 
@@ -47,7 +48,8 @@ status) and announcements from the last 60 days into SQLite and serves them
 under `/api`: `GET /api/canvas/status`, `POST /api/canvas/sync`,
 `GET /api/courses`, `GET /api/courses/{id}`, `GET /api/courses/{id}/items`,
 `GET /api/upcoming`, `GET /api/notifications`,
-`POST /api/notifications/{id}/read` and `POST /api/notifications/read-all`.
+`POST /api/notifications/{id}/read` and `POST /api/notifications/read-all`,
+plus the planning endpoints described in [Today and planning](#today-and-planning).
 FastAPI serves interactive documentation at `/docs`.
 
 ### Demo mode
@@ -122,10 +124,10 @@ database as private coursework data.
 ## Ed Discussion in the app
 
 When Ed is configured (`ED_API_TOKEN` and `ED_REGION` in `backend/.env`, see
-[Ed Discussion MCP](#ed-discussion-mcp)) or demo mode is on, **Sync now** on
-the dashboard calls `POST /api/sync`, which syncs Canvas and then Ed, each only
-if it is configured. `POST /api/canvas/sync` still syncs Canvas alone. The
-dashboard mentions Ed only when it is configured or in demo mode.
+[Ed Discussion MCP](#ed-discussion-mcp)) or demo mode is on, **Sync now** in
+the sidebar (or the sync button in the mobile top bar) calls `POST /api/sync`,
+which syncs Canvas and then Ed, each only if it is configured.
+`POST /api/canvas/sync` still syncs Canvas alone.
 
 The Ed sync keeps the app uncluttered by storing only staff-style threads:
 
@@ -138,21 +140,30 @@ list response when it carries a body (`document` or `content`); otherwise the
 sync makes at most 10 thread detail requests per course for kept threads that
 are new, changed (Ed's `updated_at`) or still without text, and retries the
 rest on the next sync. The first sync of an Ed course is a baseline that only
-notifies about announcements created in the last 7 days; after that, every
-new announcement thread creates an `ed_announcement` notification. Pinned
-threads that are not announcements never notify, and edits never notify.
+notifies about announcements created in the last 7 days; after that, a new
+announcement thread creates an `ed_announcement` notification only when it was
+created in the last 30 days (the same window that decides which announcements
+are kept). A pinned announcement older than 30 days is stored and shown, but
+does not notify. Pinned threads that are not announcements never notify, and
+edits never notify.
 
 **Course matching.** An Ed course appears on a Canvas course page when their
 course codes (or names, when a code is missing) normalize to the same token:
-uppercase, delete punctuation, then take the leading subject letters and
-course number with any letter suffix, ignoring spaces between them. `CS 106B`,
-`CS106B` and `CS-106B Fall 2026` all become `CS106B`; `CS 106A` does not
-match `CS 106B`. Matching is computed when the API is read and is one to one:
+uppercase; delete `&` and apostrophes between letters (`MS&E` becomes `MSE`)
+and treat other punctuation as a space; drop a leading term such as `F26`,
+`AUT26`, `Fall 2026` or `2026`; then take the subject letters and course number
+with its letter suffix, ignoring spaces between them (a single suffix letter
+may follow a space). `CS 106B`, `CS106B`, `CS 106 B`, `CS-106B Fall 2026`,
+`F26-CS-106B` and `AUT26 CS 106B` all become `CS106B`; `CS 106A` and
+`CS 106 A` do not match it. The token must end at a word boundary, so
+run-together or term-only codes (`F26CS106B`, `Fall 2026`) match nothing: no
+match is preferred to a false one. Matching is computed when the API is read and is one to one:
 if several courses on one side share a token, the most recently synced one is
 matched. A matched course page has an **Ed Discussion** section (pinned
 threads first, then newest) and its unread count includes the Ed course's
-unread notifications. Unmatched Ed courses are listed under **Other Ed
-courses** on the dashboard, each with its own page at `/ed/<id>`.
+unread notifications. Unmatched Ed courses are listed in the sidebar (marked
+"Ed only") and under **Other Ed courses** on `/courses`, each with its own page
+at `/ed/<id>`.
 
 API: `POST /api/sync`, `GET /api/ed/status`, `GET /api/ed/courses`,
 `GET /api/ed/courses/{id}` and `GET /api/courses/{id}/ed`. Courses gain
@@ -182,6 +193,69 @@ Ed limitations:
   token (for example from different terms) match only once.
 - Ed notification messages use the Ed course's own code.
 - Ed and Canvas share the single in-process sync lock (409 while running).
+
+## Today and planning
+
+The home page (`/`) is a morning digest built from `GET /api/today`: a
+greeting with the date, a one-line summary ("2 things to do today, 1 due
+tomorrow, 3 updates since yesterday"), then **Do today**, **Due today**,
+**Overdue** (only when there is any), up to five **Updates since yesterday**,
+a banner for a heavy week, and a card per course with its next one or two
+items. Each course has a page (`/courses/<id>`) with **What's left** ordered by
+plan date, a collapsed **Done** list, announcements and Ed posts;
+`/notifications` groups notifications by Today, Yesterday and Earlier.
+
+**Local done state.** The round checkbox on an item marks it done in this app
+only (`POST /api/items/{id}/done`; `DELETE` clears it). Canvas is never
+changed, and Canvas' own `completed` flag is reported as before. Items gain
+`done` (the local mark) and `finished` (completed or done), and everything that
+used to mean "not completed" now means "not finished": course `open_count` and
+`next_due_at`, `/api/upcoming`, course item ordering and all planning lists.
+Sync never clears the mark, also when an item's due date or text changes. After
+a check, the row shows **Done · Undo** for five seconds before it leaves the
+list; the Done list on the course page shows locally done items with a filled
+check (click to clear it) and Canvas-completed items with a fixed grey check.
+Marks live in the `canvas_item_done` table (schema v6) and are lost only if the
+database is.
+
+**Do-by dates.** Every unfinished assignment with a due date gets `do_by` and a
+short `do_by_reason`. The rule (constants in `academic_assistant/planning.py`):
+
+| Item | Start |
+| --- | --- |
+| Reading (`read`) | 1 day before due |
+| Quiz or discussion | 1 day before due |
+| Submission under 50 points, or points unknown | 2 days before due |
+| Submission of 50 points or more | 4 days before due |
+
+A do-by date is never earlier than now: if the rule would put it in the past,
+it is now, with the reason "Due soon: start today" ("Past due: finish today"
+when the due date itself has passed). It is null for undated, finished or
+announcement items. Do-by dates are computed when the API is read and are not
+stored.
+
+**Today.** `GET /api/today?tz=<IANA zone>` defines "today" in that zone (default
+UTC; unknown zones are 422). The frontend passes the Next.js server's own zone,
+which is the student's zone when the app runs on their machine. Do today holds
+unfinished items whose do-by is before the end of today but that are due later
+(due-today and overdue items have their own sections); Due today holds items
+due from now to the end of today; Overdue holds items due in the last 14 days.
+Updates are notifications from the last 24 hours (at most 10). The heavy week
+is the first of this and the next two weeks with three or more unfinished
+submissions or quizzes due, from `GET /api/weeks?count=3` (weeks start Monday
+00:00 UTC).
+
+Planning limitations:
+
+- Weeks (and so the heavy-week banner) use UTC Monday boundaries, while
+  "today" uses the requested zone, so near midnight on Sunday the two can
+  disagree by a few hours.
+- The do-by rule uses only type and points; it does not know about other
+  commitments, estimates or calendars (see Scheduling in the project plan).
+- A local done mark is not sent to Canvas, so Canvas may still report the work
+  as missing; clearing it is only possible in this app.
+- Dates are formatted in the Next.js server's time zone, which is right only
+  when the app runs on the student's own machine.
 
 ## Canvas import preview
 

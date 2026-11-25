@@ -76,6 +76,28 @@ export type Item = {
   updated_at: string;
   /** Optional so an older backend without the field still works; missing means "canvas". */
   platform?: ItemPlatform;
+  /** Schema v6: the student's local done mark (Canvas is not changed). */
+  done?: boolean;
+  /** completed or done. */
+  finished?: boolean;
+  /** Planned start date (UTC Z), never earlier than now; null when undated or finished. */
+  do_by?: string | null;
+  /** Short explanation of do_by, e.g. "Big assignment (100 pts): start 4 days early". */
+  do_by_reason?: string | null;
+};
+
+export type Week = { start: string; load: number; heavy: boolean; items: number[] };
+
+/** GET /api/today: the morning digest. */
+export type Today = {
+  generated_at: string;
+  do_today: Item[];
+  due_today: Item[];
+  overdue: Item[];
+  /** Notifications from the last 24 hours, newest first, at most 10. */
+  changes: Notification[];
+  courses: { course: Course; next: Item[] }[];
+  heavy_week: { start: string; load: number } | null;
 };
 
 export type Notification = {
@@ -168,7 +190,7 @@ function detailMessage(body: unknown): string | null {
 
 async function request<T>(
   path: string,
-  init: { method?: "GET" | "POST"; timeoutMs?: number } = {},
+  init: { method?: "GET" | "POST" | "DELETE"; timeoutMs?: number } = {},
 ): Promise<ApiResult<T>> {
   let response: Response;
   try {
@@ -215,13 +237,6 @@ async function request<T>(
     };
   }
   return { ok: true, data: body as T };
-}
-
-export async function getHealth(): Promise<boolean> {
-  const result = await request<{ status?: unknown }>("/health", {
-    timeoutMs: 2000,
-  });
-  return result.ok && result.data.status === "ok";
 }
 
 export function getCanvasStatus() {
@@ -297,4 +312,32 @@ export function markAllNotificationsRead() {
     method: "POST",
     timeoutMs: WRITE_TIMEOUT_MS,
   });
+}
+
+/** "Today" is computed in the given IANA time zone (the Next server's own zone). */
+export function getToday(timeZone: string) {
+  return request<Today>(`/api/today?${new URLSearchParams({ tz: timeZone })}`);
+}
+
+export function getWeeks(count = 3) {
+  return request<{ weeks: Week[] }>(`/api/weeks?count=${count}`);
+}
+
+export function markItemDone(id: number) {
+  return request<Item>(`/api/items/${id}/done`, {
+    method: "POST",
+    timeoutMs: WRITE_TIMEOUT_MS,
+  });
+}
+
+export function unmarkItemDone(id: number) {
+  return request<Item>(`/api/items/${id}/done`, {
+    method: "DELETE",
+    timeoutMs: WRITE_TIMEOUT_MS,
+  });
+}
+
+/** Finished = completed in Canvas or marked done locally (older backends: completed only). */
+export function isFinished(item: Item): boolean {
+  return item.finished ?? (item.completed || Boolean(item.done));
 }

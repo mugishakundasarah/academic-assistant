@@ -57,21 +57,48 @@ def describe_error(error: BaseException) -> str:
     return "Unexpected error while reading Ed."
 
 
+# "&" and apostrophes between letters join a subject ("MS&E"); other punctuation
+# separates tokens ("F26-CS-106B", "CS 106A/B").
+_INNER_PUNCTUATION = re.compile(r"(?<=[A-Z])[&'’]+(?=[A-Z])")
 _PUNCTUATION = re.compile(r"[^A-Z0-9\s]")
-_COURSE_TOKEN = re.compile(r"\s*([A-Z]+)\s*(\d+[A-Z]*)")
+# Subject letters, number, then an attached letter suffix ("106B", "106AX") or a
+# single letter after spaces ("106 B"). The token must end at a word boundary.
+_COURSE_TOKEN = re.compile(r"\s*([A-Z]+)\s*(\d+)(?:([A-Z]+)|\s+([A-Z])(?![A-Z0-9]))?(?![A-Z0-9])")
+_TERM_WORD = (
+    r"(?:FALL|AUTUMN|AUT|AU|FA|F|WINTER|WIN|WI|W|SPRING|SPR|SP|S|SUMMER|SUM|SU|SS)"
+)
+# A leading term such as "F26", "AUT26", "FALL 2026", "2026" or "2026FALL", followed by more text.
+_TERM_PREFIX = re.compile(
+    rf"\s*(?:{_TERM_WORD}\d{{2}}(?:\d{{2}})?|(?:FALL|AUTUMN|WINTER|SPRING|SUMMER)\s+\d{{2}}(?:\d{{2}})?"
+    rf"|\d{{4}}(?:{_TERM_WORD})?)\s+(?=[A-Z])"
+)
+_TERM_TOKEN = re.compile(rf"{_TERM_WORD}\d{{2}}(?:\d{{2}})?")
 
 
 def normalize_course_code(value: object) -> str | None:
     """Leading subject+number token of a course code: "CS-106B Fall 2026" -> "CS106B".
 
-    Uppercase, delete punctuation, then take the leading letters and the
-    number (with any letter suffix) that follows, ignoring spaces between
-    them. ``None`` when the value does not start with such a token.
+    Uppercase; delete "&" and apostrophes between letters ("MS&E" -> "MSE")
+    and treat other punctuation as a space; drop a leading term ("F26-CS-106B",
+    "AUT26 CS 106B"); then take the leading letters and the number with its
+    letter suffix, which may follow a space ("CS 106 B" -> "CS106B"). The
+    token must end at a word boundary, so run-together text such as
+    "F26CS106B" is ``None``, as is a token that is itself a term ("Fall
+    2026"). ``None`` means no match: a false match would merge two courses.
     """
     if not isinstance(value, str):
         return None
-    match = _COURSE_TOKEN.match(_PUNCTUATION.sub("", value.upper()))
-    return match.group(1) + match.group(2) if match else None
+    text = _PUNCTUATION.sub(" ", _INNER_PUNCTUATION.sub("", value.upper()))
+    prefix = _TERM_PREFIX.match(text)
+    if prefix:
+        text = text[prefix.end():]
+    match = _COURSE_TOKEN.match(text)
+    if not match:
+        return None
+    token = match.group(1) + match.group(2) + (match.group(3) or match.group(4) or "")
+    if _TERM_TOKEN.fullmatch(token):
+        return None
+    return token
 
 
 def is_kept(thread: dict, now: datetime) -> bool:
@@ -162,8 +189,11 @@ def _store_course(connection, course: dict, threads: list[dict], now: datetime, 
             )
             totals["threads_added"] += 1
             if thread["type"] == "announcement":
+                # Baseline: only the last 7 days. Later: anything new within the
+                # 30-day window (an old pinned announcement is stored, not announced).
                 created = parse_time(thread["created_at"])
-                if not baseline or (created is not None and created >= recent_cutoff):
+                cutoff = recent_cutoff if baseline else now - THREAD_WINDOW
+                if created is not None and created >= cutoff:
                     notifications.append((thread["id"], f"New Ed announcement in {label}: {thread['title']}"))
             continue
         changed = [field for field in _THREAD_FIELDS if existing[field] != values[field]]

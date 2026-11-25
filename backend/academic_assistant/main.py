@@ -6,14 +6,15 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import asynccontextmanager, closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Annotated, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
 
-from . import ed_sync
+from . import ed_sync, planning
 from .canvas_sync import CourseListError, iso, sync
 from .database import connect, database_path, migrate, schema_version
 from .env import BACKEND_ENV_FILE, load_env_file  # noqa: F401 (re-exported for callers)
@@ -23,6 +24,10 @@ from .integrations.ed import EdClient
 from .integrations.ed_demo import DemoEdClient
 
 OVERDUE_WINDOW = timedelta(days=14)
+CHANGES_WINDOW = timedelta(hours=24)
+CHANGES_LIMIT = 10
+COURSE_NEXT_LIMIT = 2
+TODAY_WEEKS = 3
 
 
 @asynccontextmanager
@@ -123,11 +128,22 @@ def course_matches(connection: sqlite3.Connection) -> tuple[dict[int, int], dict
 
 # ---------------------------------------------------------------- serializers
 
-_ITEM_SELECT = """SELECT i.*, c.name AS course_name
-                  FROM canvas_items i JOIN canvas_courses c ON c.id = i.course_id"""
+_ITEM_SELECT = """SELECT i.*, c.name AS course_name, d.done_at AS done_at
+                  FROM canvas_items i JOIN canvas_courses c ON c.id = i.course_id
+                  LEFT JOIN canvas_item_done d ON d.item_id = i.id"""
+# "Finished" is Canvas' completed flag or the local done mark; both queries
+# need ``canvas_items i LEFT JOIN canvas_item_done d``.
+_FINISHED = "(i.completed = 1 OR d.item_id IS NOT NULL)"
+_UNFINISHED = "(i.completed = 0 AND d.item_id IS NULL)"
 
 
-def item_json(row: sqlite3.Row) -> dict:
+def item_json(row: sqlite3.Row, now: datetime | None = None) -> dict:
+    """Serialize an item row selected with ``done_at`` (see ``_ITEM_SELECT``)."""
+    done = row["done_at"] is not None
+    finished = bool(row["completed"]) or done
+    do_by, do_by_reason = planning.do_by(
+        row["kind"], row["action"], row["due_at"], row["points_possible"], finished, now or utc_now()
+    )
     return {
         "id": row["id"],
         "kind": row["kind"],
@@ -140,6 +156,10 @@ def item_json(row: sqlite3.Row) -> dict:
         "posted_at": row["posted_at"],
         "action": row["action"],
         "completed": bool(row["completed"]),
+        "done": done,
+        "finished": finished,
+        "do_by": do_by,
+        "do_by_reason": do_by_reason,
         "missing": bool(row["missing"]),
         "points_possible": row["points_possible"],
         "author": row["author"],
@@ -152,10 +172,11 @@ def item_json(row: sqlite3.Row) -> dict:
 
 def course_json(connection: sqlite3.Connection, row: sqlite3.Row, now: str, canvas_to_ed: dict[int, int]) -> dict:
     stats = connection.execute(
-        """SELECT
-             COALESCE(SUM(kind = 'assignment' AND completed = 0 AND (due_at IS NULL OR due_at >= :now)), 0),
-             MIN(CASE WHEN kind = 'assignment' AND completed = 0 AND due_at >= :now THEN due_at END)
-           FROM canvas_items WHERE course_id = :course""",
+        f"""SELECT
+             COALESCE(SUM(i.kind = 'assignment' AND {_UNFINISHED} AND (i.due_at IS NULL OR i.due_at >= :now)), 0),
+             MIN(CASE WHEN i.kind = 'assignment' AND {_UNFINISHED} AND i.due_at >= :now THEN i.due_at END)
+           FROM canvas_items i LEFT JOIN canvas_item_done d ON d.item_id = i.id
+           WHERE i.course_id = :course""",
         {"now": now, "course": row["id"]},
     ).fetchone()
     unread = connection.execute(
@@ -221,18 +242,19 @@ def ed_threads(connection: sqlite3.Connection, ed_course_id: int) -> list[dict]:
 
 _NOTIFICATION_SELECT = f"""SELECT n.id AS notification_id, n.type, n.message, n.created_at, n.read_at,
                                  n.due_at AS notification_due_at, n.item_id AS notification_item_id,
-                                 i.*, c.name AS course_name,
+                                 i.*, c.name AS course_name, d.done_at AS done_at,
                                  {", ".join(f"t.{column} AS ed_{column}" for column in _ED_THREAD_COLUMNS)},
                                  e.id AS edc_id, e.code AS edc_code, e.name AS edc_name, e.url AS edc_url,
                                  e.synced_at AS edc_synced_at
                           FROM canvas_notifications n
                           LEFT JOIN canvas_items i ON i.id = n.item_id
                           LEFT JOIN canvas_courses c ON c.id = i.course_id
+                          LEFT JOIN canvas_item_done d ON d.item_id = i.id
                           LEFT JOIN ed_threads t ON t.id = n.ed_thread_id
                           LEFT JOIN ed_courses e ON e.id = t.ed_course_id"""
 
 
-def notification_json(row: sqlite3.Row, ed_to_canvas: dict[int, int]) -> dict:
+def notification_json(row: sqlite3.Row, ed_to_canvas: dict[int, int], now: datetime | None = None) -> dict:
     """``item`` is null for Ed notifications; ``ed_thread`` and ``ed_course`` are null for Canvas ones."""
     ed = row["ed_id"] is not None
     return {
@@ -242,7 +264,7 @@ def notification_json(row: sqlite3.Row, ed_to_canvas: dict[int, int]) -> dict:
         "created_at": row["created_at"],
         "read_at": row["read_at"],
         "due_at": row["notification_due_at"],
-        "item": item_json(row) if row["notification_item_id"] is not None else None,
+        "item": item_json(row, now) if row["notification_item_id"] is not None else None,
         "ed_thread": ed_thread_json(row, "ed_") if ed else None,
         "ed_course": ed_course_json(
             {key[4:]: row[key] for key in ("edc_id", "edc_code", "edc_name", "edc_url", "edc_synced_at")},
@@ -262,6 +284,13 @@ def _ed_course_row(connection: sqlite3.Connection, ed_course_id: int) -> sqlite3
     row = connection.execute("SELECT * FROM ed_courses WHERE id = ?", (ed_course_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Ed course not found.")
+    return row
+
+
+def _item(connection: sqlite3.Connection, item_id: int) -> sqlite3.Row:
+    row = connection.execute(f"{_ITEM_SELECT} WHERE i.id = ?", (item_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Item not found.")
     return row
 
 
@@ -448,10 +477,10 @@ def course_items(
     if kind in (None, "assignment"):
         items += connection.execute(
             f"""{_ITEM_SELECT} WHERE i.course_id = ? AND i.kind = 'assignment'
-                ORDER BY i.completed,
-                         CASE WHEN i.completed = 0 THEN i.due_at IS NULL END,
-                         CASE WHEN i.completed = 0 THEN i.due_at END ASC,
-                         CASE WHEN i.completed = 1 THEN i.due_at END DESC,
+                ORDER BY {_FINISHED},
+                         CASE WHEN NOT {_FINISHED} THEN i.due_at IS NULL END,
+                         CASE WHEN NOT {_FINISHED} THEN i.due_at END ASC,
+                         CASE WHEN {_FINISHED} THEN i.due_at END DESC,
                          i.id""",
             (course_id,),
         ).fetchall()
@@ -461,13 +490,14 @@ def course_items(
                 ORDER BY i.posted_at DESC, i.id DESC""",
             (course_id,),
         ).fetchall()
-    return {"items": [item_json(row) for row in items]}
+    now = utc_now()
+    return {"items": [item_json(row, now) for row in items]}
 
 
 @app.get("/api/upcoming")
 def upcoming(connection: DB, limit: Annotated[int, Query(ge=1, le=50)] = 10):
     now = utc_now()
-    pending = f"{_ITEM_SELECT} WHERE i.kind = 'assignment' AND i.completed = 0"
+    pending = f"{_ITEM_SELECT} WHERE i.kind = 'assignment' AND {_UNFINISHED}"
     upcoming_rows = connection.execute(
         f"{pending} AND i.due_at >= ? ORDER BY i.due_at, i.id LIMIT ?", (iso(now), limit)
     ).fetchall()
@@ -476,8 +506,8 @@ def upcoming(connection: DB, limit: Annotated[int, Query(ge=1, le=50)] = 10):
         (iso(now - OVERDUE_WINDOW), iso(now)),
     ).fetchall()
     return {
-        "overdue": [item_json(row) for row in overdue_rows],
-        "upcoming": [item_json(row) for row in upcoming_rows],
+        "overdue": [item_json(row, now) for row in overdue_rows],
+        "upcoming": [item_json(row, now) for row in upcoming_rows],
     }
 
 
@@ -512,3 +542,108 @@ def read_notification(notification_id: Id, connection: DB):
         (iso(utc_now()), notification_id),
     )
     return notification_json(_notification(connection, notification_id), course_matches(connection)[1])
+
+
+# ---------------------------------------------------------------- local done state
+
+
+@app.post("/api/items/{item_id}/done")
+def mark_item_done(item_id: Id, connection: DB):
+    """Mark an item done locally; idempotent (the first ``done_at`` is kept). Canvas is not changed."""
+    _item(connection, item_id)
+    connection.execute(
+        "INSERT INTO canvas_item_done (item_id, done_at) VALUES (?, ?) ON CONFLICT (item_id) DO NOTHING",
+        (item_id, iso(utc_now())),
+    )
+    return item_json(_item(connection, item_id))
+
+
+@app.delete("/api/items/{item_id}/done")
+def unmark_item_done(item_id: Id, connection: DB):
+    """Clear the local done mark; idempotent. Canvas' own completed flag is unaffected."""
+    _item(connection, item_id)
+    connection.execute("DELETE FROM canvas_item_done WHERE item_id = ?", (item_id,))
+    return item_json(_item(connection, item_id))
+
+
+# ---------------------------------------------------------------- planning
+
+
+def _unfinished_assignments(connection: sqlite3.Connection, now: datetime, since: datetime) -> list[dict]:
+    """Unfinished assignments that are undated or due on or after ``since``."""
+    rows = connection.execute(
+        f"""{_ITEM_SELECT} WHERE i.kind = 'assignment' AND {_UNFINISHED} AND (i.due_at IS NULL OR i.due_at >= ?)
+            ORDER BY i.due_at IS NULL, i.due_at, i.id""",
+        (iso(since),),
+    ).fetchall()
+    return [item_json(row, now) for row in rows]
+
+
+def _plan_key(item: dict) -> tuple:
+    """Order by do_by, then due date (nulls last), then id."""
+    return (item["do_by"] is None, item["do_by"] or "", item["due_at"] is None, item["due_at"] or "", item["id"])
+
+
+def _zone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        raise HTTPException(status_code=422, detail="Unknown time zone.") from None
+
+
+@app.get("/api/weeks")
+def get_weeks(connection: DB, count: Annotated[int, Query(ge=1, le=12)] = 3):
+    now = utc_now()
+    items = _unfinished_assignments(connection, now, planning.week_start(now))
+    return {"weeks": planning.weeks(items, now, count)}
+
+
+TimeZoneName = Annotated[str, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_+\-]+(/[A-Za-z0-9_+\-]+)*$")]
+
+
+@app.get("/api/today")
+def get_today(connection: DB, tz: TimeZoneName = "UTC"):
+    """The morning digest. "Today" ends at the next local midnight in ``tz``."""
+    zone = _zone(tz)
+    now = utc_now()
+    local = now.astimezone(zone)
+    end_of_today = iso(datetime.combine(local.date() + timedelta(days=1), time(0), tzinfo=zone))
+    stamp = iso(now)
+    # Undated work, and work due from 14 days ago on (this also covers the whole current week).
+    recent = _unfinished_assignments(connection, now, now - OVERDUE_WINDOW)
+
+    overdue = sorted(
+        (item for item in recent if item["due_at"] is not None and item["due_at"] < stamp),
+        key=lambda item: (item["due_at"], item["id"]), reverse=True,
+    )
+    due_today = [item for item in recent if item["due_at"] is not None and stamp <= item["due_at"] < end_of_today]
+    # Planned for today but due later: due-today and overdue work is listed in its own section.
+    do_today = sorted(
+        (item for item in recent
+         if item["do_by"] is not None and item["do_by"] <= end_of_today and item["due_at"] >= end_of_today),
+        key=_plan_key,
+    )
+
+    canvas_to_ed, ed_to_canvas = course_matches(connection)
+    courses = []
+    for row in connection.execute("SELECT * FROM canvas_courses ORDER BY name COLLATE NOCASE, id").fetchall():
+        course_items = sorted((item for item in recent if item["course_id"] == row["id"]), key=_plan_key)
+        courses.append({
+            "course": course_json(connection, row, stamp, canvas_to_ed),
+            "next": course_items[:COURSE_NEXT_LIMIT],
+        })
+
+    change_rows = connection.execute(
+        f"{_NOTIFICATION_SELECT} WHERE n.created_at >= ? ORDER BY n.created_at DESC, n.id DESC LIMIT ?",
+        (iso(now - CHANGES_WINDOW), CHANGES_LIMIT),
+    ).fetchall()
+    heavy = next((week for week in planning.weeks(recent, now, TODAY_WEEKS) if week["heavy"]), None)
+    return {
+        "generated_at": stamp,
+        "do_today": do_today,
+        "due_today": due_today,
+        "overdue": overdue,
+        "changes": [notification_json(row, ed_to_canvas, now) for row in change_rows],
+        "courses": courses,
+        "heavy_week": {"start": heavy["start"], "load": heavy["load"]} if heavy else None,
+    }

@@ -28,7 +28,7 @@ class MigrationTests(unittest.TestCase):
             migrate(path)
             migrate(path)
             self.assertEqual(schema_version(path), LATEST_VERSION)
-            self.assertEqual(LATEST_VERSION, 5)
+            self.assertEqual(LATEST_VERSION, 6)
 
     def test_schema_check_rejects_missing_migration_record(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -58,7 +58,7 @@ class MigrationTests(unittest.TestCase):
             with closing(sqlite3.connect(path)) as connection:
                 versions = connection.execute("SELECT version, applied_at FROM schema_migrations ORDER BY version").fetchall()
                 tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-            self.assertEqual([v for v, _ in versions], [1, 2, 3, 4, 5])
+            self.assertEqual([v for v, _ in versions], [1, 2, 3, 4, 5, 6])
             self.assertEqual(versions[0][1], "v1-marker")
             self.assertLessEqual({"canvas_courses", "canvas_items", "canvas_notifications", "canvas_state"}, tables)
 
@@ -125,7 +125,7 @@ class MigrationTests(unittest.TestCase):
                 schema_version(path)
             migrate(path)
             migrate(path)
-            self.assertEqual(schema_version(path), 5)
+            self.assertEqual(schema_version(path), 6)
             with closing(sqlite3.connect(path)) as connection:
                 platforms = connection.execute("SELECT kind, platform FROM canvas_items ORDER BY id").fetchall()
                 columns = [row[1] for row in connection.execute("PRAGMA table_info(canvas_items)")]
@@ -138,7 +138,7 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(platforms, [("assignment", "canvas"), ("announcement", "canvas")])
             self.assertEqual(columns.count("platform"), 1)
             self.assertEqual(notifications, [("m", "2026-12-01T00:00:00Z")])
-            self.assertEqual(versions, [1, 2, 3, 4, 5])
+            self.assertEqual(versions, [1, 2, 3, 4, 5, 6])
 
     def test_items_are_unique_by_kind_and_source_id(self):
         with tempfile.TemporaryDirectory() as directory:

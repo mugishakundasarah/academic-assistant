@@ -1,183 +1,156 @@
+import type { Metadata } from "next";
 import NextLink from "next/link";
 import { notFound } from "next/navigation";
 
-import {
-  getCourse,
-  getCourseEd,
-  getCourseItems,
-  getNotifications,
-  type Item,
-} from "../../_lib/api";
-import { plural } from "../../_lib/format";
-import {
-  BackendDown,
-  DateTime,
-  EmptyState,
-  ExternalLink,
-  ItemCard,
-  LinkList,
-  Paragraphs,
-  SiteHeader,
-} from "../../components/ui";
-import { EdThreadList } from "../../components/EdThreads";
+import { getCourse, getCourseEd, getCourseItems, isFinished, type Item } from "../../_lib/api";
+import { courseHue, courseLabel, courseTitle } from "../../_lib/course";
+import { dayTimeLabel, formatRelative, parseDate } from "../../_lib/format";
+import { ArrowLeftIcon } from "../../components/icons";
+import { ItemList } from "../../components/ItemRow";
+import { AnnouncementCard, EdThreadList } from "../../components/PostCard";
+import { BackendDown, EmptyState, ExternalLink, SectionHeader } from "../../components/ui";
 
-export const dynamic = "force-dynamic";
+function parseCourseId(id: string): number | null {
+  return /^\d{1,15}$/.test(id) && Number(id) > 0 ? Number(id) : null;
+}
 
-function Announcement({ item, now }: { item: Item; now: Date }) {
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const courseId = parseCourseId((await params).id);
+  const result = courseId ? await getCourse(courseId) : null;
+  return { title: result?.ok ? courseLabel(result.data) : "Course" };
+}
+
+/** What's left first: by do-by date, then due date; undated work last. */
+function byPlan(a: Item, b: Item): number {
+  const key = (item: Item) => [item.do_by ?? item.due_at ?? "￿", item.due_at ?? "￿"];
+  const [a1, a2] = key(a);
+  const [b1, b2] = key(b);
+  return a1.localeCompare(b1) || a2.localeCompare(b2) || a.id - b.id;
+}
+
+function BackLink() {
   return (
-    <article className="announcement" id={`item-${item.id}`}>
-      <h3 className="item-title">{item.title}</h3>
-      <p className="muted small">
-        {item.author ? <span>{item.author} · </span> : null}
-        <DateTime value={item.posted_at} prefix="Posted" now={now} />
-      </p>
-      {item.text ? (
-        <Paragraphs text={item.text} />
-      ) : (
-        <p className="muted">No message text.</p>
-      )}
-      <LinkList links={item.links} />
-      <ExternalLink href={item.html_url} className="canvas-link">
-        Open in Canvas
-      </ExternalLink>
-    </article>
+    <NextLink href="/courses" className="back-link">
+      <ArrowLeftIcon size={16} />
+      Courses
+    </NextLink>
   );
 }
 
-export default async function CoursePage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  if (!/^\d{1,15}$/.test(id) || Number(id) <= 0) notFound();
-  const courseId = Number(id);
+export default async function CoursePage({ params }: { params: Promise<{ id: string }> }) {
+  const courseId = parseCourseId((await params).id);
+  if (courseId === null) notFound();
   const now = new Date();
 
-  const [courseResult, assignmentsResult, announcementsResult, notificationsResult, edResult] =
-    await Promise.all([
-      getCourse(courseId),
-      getCourseItems(courseId, "assignment"),
-      getCourseItems(courseId, "announcement"),
-      getNotifications({ unreadOnly: true, limit: 1 }),
-      getCourseEd(courseId),
-    ]);
-
+  const [courseResult, assignmentsResult, announcementsResult, edResult] = await Promise.all([
+    getCourse(courseId),
+    getCourseItems(courseId, "assignment"),
+    getCourseItems(courseId, "announcement"),
+    getCourseEd(courseId),
+  ]);
   if (!courseResult.ok && courseResult.status === 404) notFound();
-  const unreadCount = notificationsResult.ok ? notificationsResult.data.unread_count : null;
 
   if (!courseResult.ok) {
     return (
-      <>
-        <SiteHeader unreadCount={unreadCount} healthy={courseResult.status !== null} />
-        <main className="page">
-          <p className="breadcrumb">
-            <NextLink href="/">← Dashboard</NextLink>
-          </p>
+      <div className="page">
+        <BackLink />
+        <header className="page-head">
           <h1>Course</h1>
-          <BackendDown message={courseResult.message} />
-        </main>
-      </>
+        </header>
+        <BackendDown message={courseResult.message} />
+      </div>
     );
   }
 
   const course = courseResult.data;
   const assignments = assignmentsResult.ok ? assignmentsResult.data.items : [];
-  const todo = assignments.filter((item) => !item.completed);
-  const done = assignments.filter((item) => item.completed);
+  const left = assignments.filter((item) => !isFinished(item)).sort(byPlan);
+  const done = assignments.filter(isFinished);
   const announcements = announcementsResult.ok ? announcementsResult.data.items : [];
   // Shown only for a course with a matched Ed course; an Ed read error hides it too.
   const ed = edResult.ok && edResult.data.ed_course ? edResult.data : null;
+  const nextDue = parseDate(course.next_due_at);
+  const synced = parseDate(course.synced_at);
+
+  const overdue = left.filter((item) => {
+    const due = parseDate(item.due_at);
+    return due !== null && due < now;
+  }).length;
+  const stats: string[] = [left.length ? `${left.length} left` : "All caught up"];
+  if (overdue) stats.push(`${overdue} overdue`);
+  if (nextDue) stats.push(`next due ${dayTimeLabel(nextDue, now)}`);
+  if (course.unread_count) stats.push(`${course.unread_count} unread`);
+  if (synced) stats.push(`synced ${formatRelative(synced, now)}`);
 
   return (
-    <>
-      <SiteHeader unreadCount={unreadCount} healthy />
-      <main className="page">
-        <p className="breadcrumb">
-          <NextLink href="/">← Dashboard</NextLink>
+    <div className="page">
+      <BackLink />
+      <header className="course-hero" data-hue={courseHue(course.id)}>
+        <p className="course-hero-code">
+          <span className="course-dot" aria-hidden="true" />
+          {courseLabel(course)}
         </p>
-        <header className="course-header">
-          <h1>{course.name}</h1>
-          <p className="muted">
-            {course.course_code ? <span>{course.course_code} · </span> : null}
-            {plural(course.open_count, "open task")}
-            {course.unread_count ? ` · ${course.unread_count} unread` : ""}
-            {course.synced_at ? (
-              <>
-                {" · "}
-                <DateTime value={course.synced_at} prefix="Synced" now={now} />
-              </>
-            ) : null}
-          </p>
-        </header>
+        <h1>{courseTitle(course)}</h1>
+        <p className="course-hero-stats">{stats.join(" · ")}</p>
+      </header>
 
-        <section aria-labelledby="todo-heading" className="section">
-          <h2 id="todo-heading">To do</h2>
-          {!assignmentsResult.ok ? (
-            <BackendDown message={assignmentsResult.message} />
-          ) : todo.length ? (
-            <ul className="item-list">
-              {todo.map((item) => (
-                <li key={item.id}>
-                  <ItemCard item={item} now={now} showCourse={false} />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState title="All caught up">
-              <p>No open assignments in this course.</p>
-            </EmptyState>
-          )}
+      <section aria-labelledby="left-heading" className="section">
+        <SectionHeader id="left-heading" title="What’s left" count={left.length} />
+        {!assignmentsResult.ok ? (
+          <BackendDown message={assignmentsResult.message} />
+        ) : left.length ? (
+          <ItemList items={left} now={now} showCourse={false} />
+        ) : (
+          <EmptyState title="All caught up">
+            <p>Nothing left to do in this course.</p>
+          </EmptyState>
+        )}
+      </section>
+
+      {done.length ? (
+        <section aria-labelledby="done-heading" className="section">
+          <details className="fold">
+            <summary>
+              <h2 id="done-heading">
+                Done<span className="section-count">{done.length}</span>
+              </h2>
+            </summary>
+            <ItemList items={done} now={now} showCourse={false} />
+          </details>
         </section>
+      ) : null}
 
-        {assignmentsResult.ok && done.length ? (
-          <section aria-labelledby="done-heading" className="section">
-            <details className="done-details">
-              <summary>
-                <h2 id="done-heading">Done ({done.length})</h2>
-              </summary>
-              <ul className="item-list">
-                {done.map((item) => (
-                  <li key={item.id}>
-                    <ItemCard item={item} now={now} showCourse={false} />
-                  </li>
-                ))}
-              </ul>
-            </details>
-          </section>
-        ) : null}
+      <section aria-labelledby="announcements-heading" className="section">
+        <SectionHeader id="announcements-heading" title="Announcements" />
+        {!announcementsResult.ok ? (
+          <BackendDown message={announcementsResult.message} />
+        ) : announcements.length ? (
+          <ul className="posts">
+            {announcements.map((item) => (
+              <li key={item.id}>
+                <AnnouncementCard item={item} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <EmptyState title="No announcements in the last 60 days." />
+        )}
+      </section>
 
-        <section aria-labelledby="announcements-heading" className="section">
-          <h2 id="announcements-heading">Announcements</h2>
-          {!announcementsResult.ok ? (
-            <BackendDown message={announcementsResult.message} />
-          ) : announcements.length ? (
-            <ul className="item-list">
-              {announcements.map((item) => (
-                <li key={item.id}>
-                  <Announcement item={item} now={now} />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState title="No announcements">
-              <p>No announcements from the last 60 days.</p>
-            </EmptyState>
-          )}
-        </section>
-
-        {ed && ed.ed_course ? (
-          <section aria-labelledby="ed-heading" className="section">
-            <div className="section-title-row">
-              <h2 id="ed-heading">Ed Discussion</h2>
-              <ExternalLink href={ed.ed_course.url} className="section-link">
-                Open Ed course
+      {ed && ed.ed_course ? (
+        <section aria-labelledby="ed-heading" className="section">
+          <SectionHeader
+            id="ed-heading"
+            title="Ed Discussion"
+            action={
+              <ExternalLink href={ed.ed_course.url} className="text-button">
+                Open Ed
               </ExternalLink>
-            </div>
-            <EdThreadList threads={ed.threads} now={now} />
-          </section>
-        ) : null}
-      </main>
-    </>
+            }
+          />
+          <EdThreadList threads={ed.threads} />
+        </section>
+      ) : null}
+    </div>
   );
 }

@@ -16,6 +16,7 @@ from test_canvas_sync import BASE, FakeClient, stamp
 ITEM_KEYS = {
     "id", "kind", "course_id", "course_name", "title", "text", "html_url", "due_at", "posted_at", "action",
     "completed", "missing", "points_possible", "author", "links", "first_seen_at", "updated_at", "platform",
+    "done", "finished", "do_by", "do_by_reason",
 }
 COURSE_KEYS = {"id", "name", "course_code", "synced_at", "open_count", "next_due_at", "unread_count", "ed_course_id"}
 
@@ -43,7 +44,11 @@ class ApiTestCase(unittest.TestCase):
 
     def assert_item_shape(self, item):
         self.assertEqual(set(item), ITEM_KEYS)
-        for key in ("due_at", "posted_at", "first_seen_at", "updated_at"):
+        self.assertEqual(item["finished"], item["completed"] or item["done"])
+        self.assertEqual(item["do_by"] is None, item["do_by_reason"] is None)
+        if item["finished"] or item["due_at"] is None or item["kind"] == "announcement":
+            self.assertIsNone(item["do_by"])
+        for key in ("due_at", "posted_at", "first_seen_at", "updated_at", "do_by"):
             if item[key] is not None:
                 self.assertRegex(item[key], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         for link in item["links"]:
@@ -64,7 +69,7 @@ class UnconfiguredApiTests(ApiTestCase):
         self.assertIn("CANVAS_BASE_URL", response.json()["detail"])
 
     def test_health_reports_latest_schema(self):
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "schema_version": 5})
+        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "schema_version": 6})
 
     def test_empty_lists_and_404s(self):
         self.assertEqual(self.client.get("/api/courses").json(), {"courses": []})

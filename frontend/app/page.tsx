@@ -2,256 +2,214 @@ import NextLink from "next/link";
 
 import {
   getCanvasStatus,
-  getCourses,
-  getEdCourses,
   getEdStatus,
-  getHealth,
-  getNotifications,
+  getToday,
   getUpcoming,
-  type CanvasStatus,
   type Course,
-  type EdCourse,
-  type EdStatus,
+  type Item,
+  type Today,
 } from "./_lib/api";
-import { parseDate, plural } from "./_lib/format";
-import { SyncPanel } from "./components/SyncPanel";
-import {
-  BackendDown,
-  DateTime,
-  EmptyState,
-  ItemCard,
-  SiteHeader,
-} from "./components/ui";
+import { courseLabel } from "./_lib/course";
+import { dayDiff, dayLabel, greeting, longDay, parseDate, plural, serverTimeZone, weekLabel } from "./_lib/format";
+import { CourseCard } from "./components/CourseCard";
+import { WeightIcon } from "./components/icons";
+import { ItemList } from "./components/ItemRow";
+import { NotificationRow } from "./components/NotificationRow";
+import { SyncControl } from "./components/SyncControl";
+import { BackendDown, EmptyState, SectionHeader } from "./components/ui";
 
-export const dynamic = "force-dynamic";
+const UPDATES_SHOWN = 5;
 
-function CanvasStatusBox({
-  status,
-  edStatus,
+function capitalize(text: string) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "2 things to do today, 1 due tomorrow, 3 updates since yesterday" or "Nothing due today. You’re clear." */
+function digestLine(today: Today, dueTomorrow: number): string {
+  const todo = today.do_today.length + today.due_today.length;
+  const rest: string[] = [];
+  if (today.overdue.length) rest.push(`${today.overdue.length} overdue`);
+  if (dueTomorrow) rest.push(`${dueTomorrow} due tomorrow`);
+  if (today.changes.length) rest.push(plural(today.changes.length, "update") + " since yesterday");
+  if (todo) return [plural(todo, "thing") + " to do today", ...rest].join(", ");
+  const clear = "Nothing due today. You’re clear.";
+  return rest.length ? `${clear} ${capitalize(rest.join(", "))}.` : clear;
+}
+
+function HeavyWeek({ week, now }: { week: { start: string; load: number }; now: Date }) {
+  const start = parseDate(week.start);
+  if (!start) return null;
+  const thisWeek = now.getTime() - start.getTime() < 7 * 86_400_000;
+  return (
+    <aside className="banner" aria-label="Heavy week">
+      <span className="banner-icon">
+        <WeightIcon />
+      </span>
+      <p>
+        <strong>{thisWeek ? "This is a heavy week." : `Heavy week ahead (week of ${weekLabel(start)}).`}</strong>{" "}
+        {plural(week.load, "deadline")} to submit or take. Start the big ones early.
+      </p>
+    </aside>
+  );
+}
+
+function ClearState({ next, now }: { next: Item | undefined; now: Date }) {
+  const due = next ? parseDate(next.due_at) : null;
+  return (
+    <EmptyState
+      title="Nothing due today. You’re clear."
+      icon={
+        <svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true" focusable="false">
+          <circle cx="24" cy="24" r="20" fill="var(--accent-soft)" />
+          <path d="M16 24.5l5.5 5.5L33 18.5" fill="none" stroke="var(--accent)" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      }
+    >
+      {next && due ? (
+        <p>
+          Next up: <strong>{next.title}</strong>, due {dayLabel(due, now)}.
+        </p>
+      ) : (
+        <p>Enjoy the breathing room.</p>
+      )}
+    </EmptyState>
+  );
+}
+
+function Section({
+  id,
+  title,
+  items,
+  now,
+  labels,
+  tone,
 }: {
-  status: CanvasStatus | null;
-  edStatus: EdStatus | null;
+  id: string;
+  title: string;
+  items: Item[];
+  now: Date;
+  labels: Map<number, string>;
+  tone?: "danger";
 }) {
-  const now = new Date();
-  if (!status) return null;
-  const canvasReady = status.configured || status.demo;
-  // Ed is mentioned only when it is set up, so the box stays simple without it.
-  const edReady = edStatus !== null && (edStatus.configured || edStatus.demo);
-  const canSync = canvasReady || edReady;
+  if (items.length === 0) return null;
   return (
-    <section className="status-box" aria-labelledby="canvas-status-heading">
-      <div className="status-text">
-        <h2 id="canvas-status-heading" className="status-heading">
-          Canvas
-          {status.demo ? <span className="badge badge-demo">Demo mode</span> : null}
-        </h2>
-        {!canvasReady ? (
-          <p className="muted">
-            Canvas is not configured. Set <code>CANVAS_BASE_URL</code> and{" "}
-            <code>CANVAS_API_TOKEN</code> in the backend environment, or set{" "}
-            <code>CANVAS_DEMO=1</code> to try sample data. See the README.
-          </p>
-        ) : status.last_synced_at ? (
-          <p className="muted">
-            Last synced <DateTime value={status.last_synced_at} now={now} />
-          </p>
-        ) : (
-          <p className="muted">Not synced yet.</p>
-        )}
-        {edReady ? (
-          <p className="muted">
-            Ed Discussion:{" "}
-            {edStatus.last_synced_at ? (
-              <>
-                last synced <DateTime value={edStatus.last_synced_at} now={now} />
-              </>
-            ) : (
-              "not synced yet."
-            )}
-          </p>
-        ) : null}
-        {status.syncing ? <p className="muted">A sync is running…</p> : null}
-      </div>
-      <SyncPanel
-        disabled={!canSync}
-        disabledReason={!canSync ? "Configure Canvas or Ed to enable syncing." : undefined}
-      />
+    <section aria-labelledby={id} className="section">
+      <SectionHeader id={id} title={title} count={items.length} tone={tone} />
+      <ItemList items={items} now={now} courseLabels={labels} />
     </section>
   );
 }
 
-function CourseCard({ course, now }: { course: Course; now: Date }) {
-  const nextDue = parseDate(course.next_due_at);
-  return (
-    <li>
-      <NextLink href={`/courses/${course.id}`} className="course-card">
-        <span className="course-card-name">{course.name}</span>
-        {course.course_code && course.course_code !== course.name ? (
-          <span className="course-card-code">{course.course_code}</span>
-        ) : null}
-        <span className="course-card-stats">
-          <span>{plural(course.open_count, "open task")}</span>
-          {course.unread_count ? (
-            <span className="unread-text">{course.unread_count} unread</span>
-          ) : null}
-        </span>
-        <span className="course-card-due">
-          {nextDue ? (
-            <DateTime value={course.next_due_at} prefix="Next due" now={now} />
-          ) : (
-            "Nothing due"
-          )}
-        </span>
-      </NextLink>
-    </li>
-  );
-}
-
-function OtherEdCourses({ courses }: { courses: EdCourse[] }) {
-  if (courses.length === 0) return null;
-  return (
-    <section aria-labelledby="other-ed-heading" className="section">
-      <h2 id="other-ed-heading">Other Ed courses</h2>
-      <ul className="ed-course-list">
-        {courses.map((course) => (
-          <li key={course.id}>
-            <NextLink href={`/ed/${course.id}`}>{course.code ?? course.name}</NextLink>
-            {course.code && course.name !== course.code ? (
-              <span className="muted small"> · {course.name}</span>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-export default async function HomePage() {
+export default async function TodayPage() {
   const now = new Date();
-  const [
-    healthy,
-    statusResult,
-    upcomingResult,
-    coursesResult,
-    notificationsResult,
-    edStatusResult,
-    edCoursesResult,
-  ] = await Promise.all([
-    getHealth(),
+  const [todayResult, upcomingResult, statusResult, edStatusResult] = await Promise.all([
+    getToday(serverTimeZone()),
+    getUpcoming(50),
     getCanvasStatus(),
-    getUpcoming(10),
-    getCourses(),
-    getNotifications({ unreadOnly: true, limit: 1 }),
     getEdStatus(),
-    getEdCourses(),
   ]);
 
+  const header = (summary?: string) => (
+    <header className="page-head">
+      <h1 className="greeting">
+        {greeting(now)} <span className="greeting-date">· {longDay(now)}</span>
+      </h1>
+      {summary ? <p className="digest">{summary}</p> : null}
+    </header>
+  );
+
+  if (!todayResult.ok) {
+    return (
+      <div className="page">
+        {header()}
+        <BackendDown message={todayResult.message} />
+      </div>
+    );
+  }
+
+  const today = todayResult.data;
   const status = statusResult.ok ? statusResult.data : null;
   const edStatus = edStatusResult.ok ? edStatusResult.data : null;
-  const otherEdCourses = edCoursesResult.ok
-    ? edCoursesResult.data.courses.filter((course) => course.canvas_course_id === null)
-    : [];
-  const unreadCount = notificationsResult.ok ? notificationsResult.data.unread_count : null;
-  const backendError = !statusResult.ok
-    ? statusResult.message
-    : !upcomingResult.ok
-      ? upcomingResult.message
-      : !coursesResult.ok
-        ? coursesResult.message
-        : null;
+  const canSync = Boolean(status && (status.configured || status.demo)) || Boolean(edStatus && (edStatus.configured || edStatus.demo));
+  const neverSynced = !status?.last_synced_at && !edStatus?.last_synced_at && today.courses.length === 0;
 
+  if (neverSynced) {
+    return (
+      <div className="page">
+        {header()}
+        <EmptyState title="Let’s bring in your courses">
+          <p>
+            Sync pulls your assignments, announcements and Ed posts, then plans when to start each one.
+          </p>
+          {canSync ? (
+            <SyncControl disabled={false} variant="primary" />
+          ) : (
+            <p className="muted">
+              Set <code>CANVAS_BASE_URL</code> and <code>CANVAS_API_TOKEN</code> in the backend environment, or{" "}
+              <code>CANVAS_DEMO=1</code> to try sample data. See the README.
+            </p>
+          )}
+        </EmptyState>
+      </div>
+    );
+  }
+
+  const labels = new Map<number, string>(today.courses.map(({ course }) => [course.id, courseLabel(course)]));
   const upcoming = upcomingResult.ok ? upcomingResult.data.upcoming : [];
-  const overdue = upcomingResult.ok ? upcomingResult.data.overdue : [];
-  const courses = coursesResult.ok ? coursesResult.data.courses : [];
-  const neverSynced =
-    status !== null && !status.last_synced_at && !edStatus?.last_synced_at && courses.length === 0;
-  const [current, ...rest] = upcoming;
+  const dueTomorrow = upcoming.filter((item) => {
+    const due = parseDate(item.due_at);
+    return due !== null && dayDiff(due, now) === 1;
+  }).length;
+  const nothingToday = !today.do_today.length && !today.due_today.length && !today.overdue.length;
+  const updates = today.changes.slice(0, UPDATES_SHOWN);
+  const courses: { course: Course; next: Item[] }[] = today.courses;
 
   return (
-    <>
-      <SiteHeader unreadCount={unreadCount} healthy={healthy} />
-      <main className="page">
-        <div className="page-title-row">
-          <h1>Dashboard</h1>
-          {unreadCount !== null ? (
-            <NextLink href="/notifications" className="unread-link">
-              {unreadCount === 0
-                ? "No unread notifications"
-                : `${plural(unreadCount, "unread notification")}`}
-            </NextLink>
-          ) : null}
-        </div>
+    <div className="page">
+      {header(digestLine(today, dueTomorrow))}
 
-        {backendError ? <BackendDown message={backendError} /> : null}
-        <CanvasStatusBox status={status} edStatus={edStatus} />
+      {nothingToday ? (
+        <ClearState next={upcoming[0]} now={now} />
+      ) : (
+        <>
+          <Section id="do-today" title="Do today" items={today.do_today} now={now} labels={labels} />
+          <Section id="due-today" title="Due today" items={today.due_today} now={now} labels={labels} />
+          <Section id="overdue" title="Overdue" items={today.overdue} now={now} labels={labels} tone="danger" />
+        </>
+      )}
 
-        {neverSynced ? (
-          <EmptyState title="Nothing here yet">
-            <p>Run your first sync to pull courses, assignments and announcements from Canvas.</p>
-          </EmptyState>
-        ) : null}
+      {updates.length ? (
+        <section aria-labelledby="updates" className="section">
+          <SectionHeader
+            id="updates"
+            title="Updates since yesterday"
+            count={today.changes.length}
+            action={
+              <NextLink href="/notifications" className="text-button">
+                See all
+              </NextLink>
+            }
+          />
+          <ul className="notes is-compact">
+            {updates.map((notification) => (
+              <NotificationRow key={notification.id} notification={notification} now={now} courseLabels={labels} compact />
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
-        {!neverSynced && upcomingResult.ok ? (
-          <>
-            <section aria-labelledby="up-next-heading" className="section">
-              <h2 id="up-next-heading">Up next</h2>
-              {current ? (
-                <>
-                  <p className="eyebrow">Current task</p>
-                  <ItemCard item={current} now={now} featured headingLevel={3} />
-                  {rest.length ? (
-                    <ul className="item-list" aria-label="Later tasks">
-                      {rest.map((item) => (
-                        <li key={item.id}>
-                          <ItemCard item={item} now={now} />
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </>
-              ) : (
-                <EmptyState title="Nothing upcoming">
-                  <p>No open assignments with upcoming due dates.</p>
-                </EmptyState>
-              )}
-            </section>
+      {today.heavy_week ? <HeavyWeek week={today.heavy_week} now={now} /> : null}
 
-            {overdue.length ? (
-              <section aria-labelledby="overdue-heading" className="section">
-                <h2 id="overdue-heading">
-                  Overdue <span className="count-pill count-pill-warn">{overdue.length}</span>
-                </h2>
-                <ul className="item-list">
-                  {overdue.map((item) => (
-                    <li key={item.id}>
-                      <ItemCard item={item} now={now} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-          </>
-        ) : null}
-
-        {!neverSynced && coursesResult.ok ? (
-          <section aria-labelledby="courses-heading" className="section">
-            <h2 id="courses-heading">Courses</h2>
-            {courses.length ? (
-              <ul className="course-grid">
-                {courses.map((course) => (
-                  <CourseCard key={course.id} course={course} now={now} />
-                ))}
-              </ul>
-            ) : (
-              <EmptyState title="No courses">
-                <p>No active Canvas courses were found in the last sync.</p>
-              </EmptyState>
-            )}
-          </section>
-        ) : null}
-
-        <OtherEdCourses courses={otherEdCourses} />
-      </main>
-    </>
+      {courses.length ? (
+        <section aria-labelledby="your-courses" className="section">
+          <SectionHeader id="your-courses" title="Your courses" />
+          <ul className="course-grid">
+            {courses.map(({ course, next }) => (
+              <CourseCard key={course.id} course={course} next={next} now={now} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
   );
 }
