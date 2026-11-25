@@ -11,7 +11,9 @@ from academic_assistant.canvas_sync import (
     CourseListError,
     classify,
     describe_error,
+    is_gradescope_url,
     normalize_announcement,
+    normalize_assignment,
     normalize_time,
     sync,
 )
@@ -207,6 +209,44 @@ class ClassificationTests(unittest.TestCase):
         self.assertTrue(classify(["online_upload"], {"workflow_state": "unsubmitted", "submitted_at": "2026-11-01T00:00:00Z"})[1])
         self.assertEqual(classify(["online_upload"], {"missing": True})[1:], (False, True))
         self.assertEqual(classify(["online_upload"], "junk")[1:], (False, False))
+
+    def test_gradescope_hosts(self):
+        for url in ("https://www.gradescope.com/auth/lti/launch", "https://gradescope.com/courses/1",
+                    "http://GRADESCOPE.COM./x", "https://lti.gradescope.com:443/x", " https://www.gradescope.com "):
+            with self.subTest(url=url):
+                self.assertTrue(is_gradescope_url(url))
+        for url in ("https://gradescope.com.evil.example/x", "https://evilgradescope.com/x",
+                    "https://example.com/?u=https://www.gradescope.com", "https://www.gradescope.com@evil.example/",
+                    "javascript://www.gradescope.com/%0aalert(1)", "ftp://gradescope.com/x", "https://[::1/x",
+                    "gradescope.com", "", None, 5):
+            with self.subTest(url=url):
+                self.assertFalse(is_gradescope_url(url))
+
+    def test_gradescope_assignments_are_labelled(self):
+        def assignment(**extra):
+            return normalize_assignment({"id": 1, "name": "PS", "submission_types": ["external_tool"], **extra}, BASE)
+
+        tool = {"external_tool_tag_attributes": {"url": "https://www.gradescope.com/auth/lti/launch"}}
+        labelled = assignment(**tool)
+        self.assertEqual((labelled["platform"], labelled["action"]), ("gradescope", "submit"))
+        described = assignment(description='<p><a href="https://gradescope.com/courses/9">Submit here</a></p>')
+        self.assertEqual(described["platform"], "gradescope")
+        self.assertEqual(assignment(html_url="https://www.gradescope.com/courses/9/assignments/3")["platform"], "gradescope")
+        # Gradescope assignments that are also discussions submit through Gradescope.
+        self.assertEqual(assignment(submission_types=["external_tool", "discussion_topic"], **tool)["action"], "submit")
+        # Quiz rules still win.
+        quiz = assignment(is_quiz_lti_assignment=True, **tool)
+        self.assertEqual((quiz["platform"], quiz["action"]), ("gradescope", "quiz"))
+        for record in (
+            {},  # external tool without a Gradescope link
+            {"external_tool_tag_attributes": {"url": "https://tool.example.com/lti"}},
+            {"external_tool_tag_attributes": "https://www.gradescope.com/"},
+            {"submission_types": ["online_upload"], **tool},  # Gradescope link but not an external tool
+            {"submission_types": "external_tool", **tool},
+        ):
+            with self.subTest(record=record):
+                self.assertEqual(assignment(**record)["platform"], "canvas")
+        self.assertEqual(normalize_announcement({"id": 2, "title": "A"}, BASE)["platform"], "canvas")
 
     def test_announcement_attachments_become_file_links(self):
         item = normalize_announcement({
@@ -407,6 +447,18 @@ class SyncTests(DatabaseTestCase):
         self.assertEqual(result["courses"], 2)
         self.assertEqual(self.count("canvas_items", "kind = 'assignment'"), 2)
 
+    def test_platform_change_updates_without_notifying(self):
+        sync(self.db, self.client, NOW)
+        before = self.count("canvas_notifications")
+        self.client.assignments_data[1][0].update(
+            submission_types=["external_tool"],
+            external_tool_tag_attributes={"url": "https://www.gradescope.com/auth/lti/launch"},
+        )
+        result = sync(self.db, self.client, NOW + timedelta(hours=1))
+        self.assertEqual((result["items_updated"], result["notifications_created"]), (1, 0))
+        self.assertEqual(self.count("canvas_notifications"), before)
+        self.assertEqual(self.count("canvas_items", "platform = 'gradescope'"), 1)
+
     def test_database_errors_roll_back_the_course(self):
         self.db.execute("DROP TABLE canvas_notifications")
         with self.assertRaises(sqlite3.Error):
@@ -430,6 +482,8 @@ class DemoClientTests(DatabaseTestCase):
         self.assertGreater(self.count("canvas_items", "missing = 1"), 0)
         actions = {row[0] for row in self.db.execute("SELECT action FROM canvas_items WHERE kind = 'assignment'")}
         self.assertEqual(actions, {"read", "submit", "quiz", "discussion"})
+        gradescope = self.db.execute("SELECT source_id, action FROM canvas_items WHERE platform = 'gradescope'").fetchall()
+        self.assertEqual([tuple(row) for row in gradescope], [(2007, "submit")])
         links = " ".join(row[0] for row in self.db.execute("SELECT links_json FROM canvas_items"))
         self.assertIn('"kind": "file"', links)
         self.assertNotIn("javascript", links)

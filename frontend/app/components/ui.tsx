@@ -174,6 +174,9 @@ export function ItemCard({
     >
       <div className="item-meta">
         <TypeBadge item={item} />
+        {item.platform === "gradescope" ? (
+          <span className="badge">Gradescope</span>
+        ) : null}
         {item.missing ? <span className="badge badge-missing">Missing</span> : null}
         {item.completed ? <span className="badge badge-done">Done</span> : null}
         {showCourse ? (

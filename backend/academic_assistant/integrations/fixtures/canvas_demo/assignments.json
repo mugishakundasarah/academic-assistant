@@ -53,6 +53,17 @@
       "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
     },
     {
+      "id": 2007,
+      "name": "Problem Set 3: Recursion tracing (Gradescope)",
+      "description": "<p>Trace the three recursive calls by hand and upload a PDF of your work through Gradescope. Mark the page for each question.</p>",
+      "due_offset_hours": 161,
+      "html_url": "https://canvas.example.com/courses/1001/assignments/2007",
+      "points_possible": 30,
+      "submission_types": ["external_tool"],
+      "external_tool_tag_attributes": {"url": "https://www.gradescope.com/auth/lti/launch", "new_tab": true},
+      "submission": {"workflow_state": "unsubmitted", "submitted_at": null, "missing": false}
+    },
+    {
       "id": 2006,
       "name": "Assignment 4: Backtracking",
       "description": "<p>Released after the midterm. See the <a href=\"/courses/1001/files/5004/download\">Assignment 4 handout (PDF)</a>.</p>",

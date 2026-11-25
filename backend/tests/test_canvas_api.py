@@ -15,7 +15,7 @@ from test_canvas_sync import BASE, FakeClient, stamp
 
 ITEM_KEYS = {
     "id", "kind", "course_id", "course_name", "title", "text", "html_url", "due_at", "posted_at", "action",
-    "completed", "missing", "points_possible", "author", "links", "first_seen_at", "updated_at",
+    "completed", "missing", "points_possible", "author", "links", "first_seen_at", "updated_at", "platform",
 }
 COURSE_KEYS = {"id", "name", "course_code", "synced_at", "open_count", "next_due_at", "unread_count"}
 
@@ -50,6 +50,9 @@ class ApiTestCase(unittest.TestCase):
             self.assertEqual(set(link), {"title", "url", "kind"})
             self.assertRegex(link["url"], r"^https?://")
             self.assertIn(link["kind"], ("file", "link"))
+        self.assertIn(item["platform"], ("canvas", "gradescope"))
+        if item["kind"] == "announcement":
+            self.assertEqual(item["platform"], "canvas")
 
 
 class UnconfiguredApiTests(ApiTestCase):
@@ -61,7 +64,7 @@ class UnconfiguredApiTests(ApiTestCase):
         self.assertIn("CANVAS_BASE_URL", response.json()["detail"])
 
     def test_health_reports_latest_schema(self):
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "schema_version": 3})
+        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "schema_version": 4})
 
     def test_empty_lists_and_404s(self):
         self.assertEqual(self.client.get("/api/courses").json(), {"courses": []})
@@ -253,6 +256,9 @@ class DemoApiTests(ApiTestCase):
             self.assertFalse(item["completed"])
         notifications = self.client.get("/api/notifications").json()
         self.assertEqual(notifications["unread_count"], 6)
+        gradescope = [i for i in upcoming["upcoming"] + upcoming["overdue"] if i["platform"] == "gradescope"]
+        self.assertEqual([(i["title"], i["action"]) for i in gradescope],
+                         [("Problem Set 3: Recursion tracing (Gradescope)", "submit")])
         for course in courses:
             for item in self.client.get(f"/api/courses/{course['id']}/items").json()["items"]:
                 self.assert_item_shape(item)

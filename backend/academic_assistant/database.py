@@ -68,6 +68,16 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     # Version 3 snapshots the item's due date when a notification is created,
     # so old notifications keep the date they announced. Existing rows get NULL.
     (3, ("ALTER TABLE canvas_notifications ADD COLUMN due_at TEXT",)),
+    # Version 4 records where an item is done: 'gradescope' for Canvas
+    # assignments that launch Gradescope, otherwise 'canvas'. Existing rows get
+    # 'canvas' and are relabelled by the next sync.
+    (
+        4,
+        (
+            "ALTER TABLE canvas_items ADD COLUMN platform TEXT NOT NULL DEFAULT 'canvas'"
+            " CHECK (platform IN ('canvas', 'gradescope'))",
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1][0]

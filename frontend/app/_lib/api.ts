@@ -4,6 +4,8 @@
 
 export type ItemKind = "assignment" | "announcement";
 export type ItemAction = "read" | "submit" | "quiz" | "discussion";
+/** Where the work is done: "gradescope" for Canvas assignments that launch Gradescope. */
+export type ItemPlatform = "canvas" | "gradescope";
 export type NotificationType =
   | "new_announcement"
   | "new_assignment"
@@ -40,6 +42,8 @@ export type Item = {
   links: Link[];
   first_seen_at: string;
   updated_at: string;
+  /** Optional so an older backend without the field still works; missing means "canvas". */
+  platform?: ItemPlatform;
 };
 
 export type Notification = {

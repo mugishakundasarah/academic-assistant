@@ -7,7 +7,6 @@ import threading
 from collections.abc import Iterator
 from contextlib import asynccontextmanager, closing
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -16,20 +15,11 @@ from fastapi.responses import JSONResponse
 
 from .canvas_sync import CourseListError, iso, sync
 from .database import connect, database_path, migrate, schema_version
+from .env import BACKEND_ENV_FILE, load_env_file  # noqa: F401 (re-exported for callers)
 from .integrations.canvas import CanvasClient
 from .integrations.canvas_demo import DemoCanvasClient
 
-BACKEND_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 OVERDUE_WINDOW = timedelta(days=14)
-
-
-def load_env_file(path: Path = BACKEND_ENV_FILE) -> bool:
-    """Load ``backend/.env`` if python-dotenv is installed. Real environment variables win."""
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return False
-    return load_dotenv(path, override=False)
 
 
 @asynccontextmanager
@@ -103,6 +93,7 @@ def item_json(row: sqlite3.Row) -> dict:
         "points_possible": row["points_possible"],
         "author": row["author"],
         "links": json.loads(row["links_json"]),
+        "platform": row["platform"],
         "first_seen_at": row["first_seen_at"],
         "updated_at": row["updated_at"],
     }

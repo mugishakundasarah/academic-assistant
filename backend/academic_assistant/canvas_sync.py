@@ -16,6 +16,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 
 from .integrations.canvas_html import dedupe_links, html_to_text_and_links, link_kind, safe_url
 
@@ -27,7 +28,7 @@ READ_ONLY_TYPES = frozenset({"none", "not_graded", "wiki_page"})
 # Columns compared to decide whether an existing item changed.
 _ITEM_FIELDS = (
     "course_id", "title", "text", "html_url", "due_at", "posted_at", "action",
-    "completed", "missing", "points_possible", "author", "links_json",
+    "completed", "missing", "points_possible", "author", "links_json", "platform",
 )
 
 
@@ -101,6 +102,38 @@ def classify(submission_types: object, submission: object, is_quiz_lti: object =
     return action, completed, missing
 
 
+def is_gradescope_url(value: object) -> bool:
+    """True for an http(s) URL whose host is gradescope.com or a subdomain of it."""
+    if not isinstance(value, str):
+        return False
+    try:
+        parts = urlsplit(value.strip())
+        host = parts.hostname
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or not host:
+        return False
+    host = host.rstrip(".")
+    return host == "gradescope.com" or host.endswith(".gradescope.com")
+
+
+def assignment_platform(record: dict, links: list[dict]) -> str:
+    """Return ``"gradescope"`` for an external-tool assignment that links to Gradescope.
+
+    Gradescope has no student API, so this only labels the Canvas record: the
+    submission types must include ``external_tool`` and the tool launch URL,
+    the assignment's ``html_url`` or a link in its description must point to
+    a Gradescope host.
+    """
+    types = record.get("submission_types")
+    if not isinstance(types, list) or "external_tool" not in types:
+        return "canvas"
+    tool = record.get("external_tool_tag_attributes")
+    candidates = [tool.get("url") if isinstance(tool, dict) else None, record.get("html_url")]
+    candidates += [link["url"] for link in links]
+    return "gradescope" if any(is_gradescope_url(url) for url in candidates) else "canvas"
+
+
 def _canvas_id(record: dict) -> int | None:
     value = record.get("id")
     if type(value) is int and value > 0:
@@ -128,6 +161,9 @@ def normalize_assignment(record: dict, base_url: str) -> dict | None:
     action, completed, missing = classify(
         record.get("submission_types"), record.get("submission"), record.get("is_quiz_lti_assignment")
     )
+    platform = assignment_platform(record, links)
+    if platform == "gradescope" and action != "quiz":
+        action = "submit"
     return {
         "kind": "assignment",
         "source_id": source_id,
@@ -142,6 +178,7 @@ def normalize_assignment(record: dict, base_url: str) -> dict | None:
         "points_possible": _number(record.get("points_possible")),
         "author": None,
         "links": links,
+        "platform": platform,
     }
 
 
@@ -173,6 +210,7 @@ def normalize_announcement(record: dict, base_url: str) -> dict | None:
         "points_possible": None,
         "author": author_name or _string(record.get("user_name")),
         "links": dedupe_links(links),
+        "platform": "canvas",
     }
 
 

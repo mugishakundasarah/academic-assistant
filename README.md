@@ -134,8 +134,10 @@ The command retrieves all assignment pages for that course and prints the source
 records locally. It performs read-only requests and does not write assignments
 to SQLite. The preview may contain private coursework data.
 
-Gradescope and Ed Discussion need institution-supported methods for reading
-course data before live connectors can be implemented.
+Gradescope has no student API. Instead, Canvas sync labels an assignment
+`platform: "gradescope"` (shown as a Gradescope badge) when it is an external
+tool assignment whose launch URL, Canvas link, or description links point to
+`gradescope.com` or a subdomain; all other items are `platform: "canvas"`.
 
 ## Canvas MCP tool
 
@@ -156,6 +158,57 @@ the server process for live calls. Keep the token out of shared MCP config,
 source control, and chat. Discovery and the fixture tests work without an
 account. Confirm that the MCP host and model are approved to receive private
 coursework before using the tool with live data.
+
+## Ed Discussion MCP
+
+Ed Discussion has no documented API. The read-only Ed client relies on the
+token API that Ed's web app uses, as reverse-engineered by the community
+project [smartspot2/edapi](https://github.com/smartspot2/edapi)
+(`docs/api_docs.md`). It uses `GET /api/user`, `GET
+/api/courses/{id}/threads?limit=&offset=&sort=new` and `GET
+/api/threads/{id}?view=1`. Endpoints and field shapes may change without
+notice; unexpected responses produce a generic error instead of partial data.
+
+Create a personal token at <https://edstem.org/us/settings/api-tokens>. Put
+it only in `backend/.env`, next to the region:
+
+```sh
+ED_API_TOKEN=...
+ED_REGION=us   # us, eu or au
+```
+
+Both the Ed MCP server and the Ed CLI preview load `backend/.env` at startup,
+and variables already set in the process environment win. The Canvas MCP
+server and the Canvas preview do not load the file. The token is sent only as
+an `Authorization` header to `https://<region>.edstem.org`, and redirects are
+refused. Keep it out of MCP client config, source control, and chat.
+
+Register a local stdio server like the Canvas one, with the backend directory
+as the working directory, the virtual environment's Python as the command, and
+these arguments:
+
+```text
+-m academic_assistant.integrations.ed_mcp
+```
+
+It exposes three read-only tools: `list_ed_courses` (active courses),
+`list_ed_threads` (a course's recent threads, newest first, `limit` 1 to 50,
+with links to the Ed web page) and `get_ed_thread` (one thread's plain text
+and up to 20 answers, each with the author's course role unless the answer is
+anonymous, plus endorsed and accepted flags). Discovery works without a token.
+
+To preview from `backend`:
+
+```sh
+python -m academic_assistant.integrations ed courses
+python -m academic_assistant.integrations ed threads 12345 --limit 20
+```
+
+Nothing from Ed is written to SQLite. Thread and answer text can contain
+classmates' posts and other private course content, and tool results go to
+the MCP host and its model. Confirm that they are approved to receive that
+data before you use the tools with a live account. The tools return no user
+names, emails or avatars.
 
 ## Continuous integration and deployment
 
