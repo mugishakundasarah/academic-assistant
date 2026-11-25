@@ -72,7 +72,7 @@ def _call(fetch):
         return fetch(_client())
     except HTTPError as error:
         raise ToolError(f"Ed request failed (HTTP {error.code}).") from None
-    except (ValueError, TypeError, HTTPException):
+    except (ValueError, TypeError, RecursionError, HTTPException):
         raise ToolError("Ed returned an unexpected response.") from None
     except OSError:
         raise ToolError("Could not reach Ed.") from None

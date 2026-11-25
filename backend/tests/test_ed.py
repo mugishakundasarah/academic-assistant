@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import ssl
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from email.message import Message
@@ -84,6 +85,7 @@ class EdClientTests(unittest.TestCase):
         (request,) = self.requests()
         self.assertEqual(request.full_url, "https://us.edstem.org/api/user")
         self.assertEqual(request.get_header("Authorization"), f"Bearer {TOKEN}")
+        self.assertEqual(request.get_header("User-agent"), "academic-assistant/0.1")
         self.assertNotIn(TOKEN, request.full_url)
         self.assertEqual(self.client.opener.open.call_args.kwargs["timeout"], 15)
 
@@ -250,6 +252,9 @@ class CliTests(unittest.TestCase):
             (TimeoutError(TOKEN), "Could not reach Ed.\n"),
             (json.JSONDecodeError(TOKEN, "doc", 0), "Ed returned invalid JSON.\n"),
             (ValueError("Ed returned an unexpected user response"), "Ed returned an unexpected user response.\n"),
+            (RecursionError(TOKEN), "Ed returned an unexpected response.\n"),
+            (ConnectionResetError(TOKEN), "Could not reach Ed.\n"),
+            (ssl.SSLError(TOKEN), "Could not reach Ed.\n"),
         ]
         for error, message in errors:
             with self.subTest(error=type(error).__name__):

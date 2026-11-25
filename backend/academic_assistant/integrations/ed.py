@@ -35,6 +35,8 @@ MAX_THREADS = 100
 PAGE_SIZE = 50
 MAX_ANSWERS = 20
 TIMEOUT_SECONDS = 15
+# Ed's firewall rejects urllib's default "Python-urllib" User-Agent with 403.
+USER_AGENT = "academic-assistant/0.1"
 
 # Elements of Ed's XML document format that end a line of text.
 _BLOCK_TAGS = frozenset({
@@ -269,7 +271,11 @@ class EdClient:
         # data, so the token only ever goes to the fixed regional origin.
         request = Request(
             f"{self.origin}{path}",
-            headers={"Authorization": f"Bearer {self.token}", "Accept": "application/json"},
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/json",
+                "User-Agent": USER_AGENT,
+            },
         )
         with self.opener.open(request, timeout=TIMEOUT_SECONDS) as response:
             data = json.load(response)

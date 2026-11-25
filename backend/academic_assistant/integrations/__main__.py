@@ -36,13 +36,16 @@ def ed_preview(parser: argparse.ArgumentParser, args: argparse.Namespace):
         return client.threads(args.course_id, args.limit)
     except HTTPError as error:
         parser.exit(1, f"Ed request failed (HTTP {error.code}).\n")
-    except (URLError, TimeoutError, HTTPException, ConnectionError):
-        parser.exit(1, "Could not reach Ed.\n")
     except json.JSONDecodeError:
         parser.exit(1, "Ed returned invalid JSON.\n")
     except ValueError as error:
         # ValueError messages come from the client and never include the token.
         parser.exit(1, f"{error}.\n")
+    except (RecursionError, HTTPException):
+        parser.exit(1, "Ed returned an unexpected response.\n")
+    except OSError:
+        # URLError, timeouts, connection and TLS errors.
+        parser.exit(1, "Could not reach Ed.\n")
 
 
 def limit_type(value: str) -> int:
