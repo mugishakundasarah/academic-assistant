@@ -151,6 +151,20 @@ class EdClientTests(unittest.TestCase):
              "url": "https://edstem.org/us/courses/5/discussion/2"},
         ])
 
+    def test_threads_with_body_add_updated_at_and_optional_text(self):
+        self.client.opener.open.return_value = response({"threads": [
+            thread_record(1, document="Plain body", content="<document><paragraph>x</paragraph></document>"),
+            thread_record(2, content="<document><paragraph>From <bold>XML</bold></paragraph></document>"),
+            thread_record(3),
+            thread_record(4, document=""),
+        ]})
+        threads = self.client.threads(5, 4, with_body=True)
+        self.assertEqual([(t["text"], t["updated_at"]) for t in threads], [
+            ("Plain body", "2026-11-19T23:00:00Z"), ("From XML", "2026-11-19T23:00:00Z"),
+            (None, "2026-11-19T23:00:00Z"), ("", "2026-11-19T23:00:00Z"),
+        ])
+        self.assertEqual(self.client.course_url(5), "https://edstem.org/us/courses/5/discussion")
+
     def test_small_limit_requests_one_page_of_that_size(self):
         self.client.opener.open.return_value = response({"threads": [thread_record(1), thread_record(2)]})
         self.assertEqual([t["id"] for t in self.client.threads(5, 2)], [1, 2])

@@ -3,11 +3,15 @@ import NextLink from "next/link";
 import {
   getCanvasStatus,
   getCourses,
+  getEdCourses,
+  getEdStatus,
   getHealth,
   getNotifications,
   getUpcoming,
   type CanvasStatus,
   type Course,
+  type EdCourse,
+  type EdStatus,
 } from "./_lib/api";
 import { parseDate, plural } from "./_lib/format";
 import { SyncPanel } from "./components/SyncPanel";
@@ -21,10 +25,19 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function CanvasStatusBox({ status }: { status: CanvasStatus | null }) {
+function CanvasStatusBox({
+  status,
+  edStatus,
+}: {
+  status: CanvasStatus | null;
+  edStatus: EdStatus | null;
+}) {
   const now = new Date();
   if (!status) return null;
-  const canSync = status.configured || status.demo;
+  const canvasReady = status.configured || status.demo;
+  // Ed is mentioned only when it is set up, so the box stays simple without it.
+  const edReady = edStatus !== null && (edStatus.configured || edStatus.demo);
+  const canSync = canvasReady || edReady;
   return (
     <section className="status-box" aria-labelledby="canvas-status-heading">
       <div className="status-text">
@@ -32,7 +45,7 @@ function CanvasStatusBox({ status }: { status: CanvasStatus | null }) {
           Canvas
           {status.demo ? <span className="badge badge-demo">Demo mode</span> : null}
         </h2>
-        {!canSync ? (
+        {!canvasReady ? (
           <p className="muted">
             Canvas is not configured. Set <code>CANVAS_BASE_URL</code> and{" "}
             <code>CANVAS_API_TOKEN</code> in the backend environment, or set{" "}
@@ -45,11 +58,23 @@ function CanvasStatusBox({ status }: { status: CanvasStatus | null }) {
         ) : (
           <p className="muted">Not synced yet.</p>
         )}
+        {edReady ? (
+          <p className="muted">
+            Ed Discussion:{" "}
+            {edStatus.last_synced_at ? (
+              <>
+                last synced <DateTime value={edStatus.last_synced_at} now={now} />
+              </>
+            ) : (
+              "not synced yet."
+            )}
+          </p>
+        ) : null}
         {status.syncing ? <p className="muted">A sync is running…</p> : null}
       </div>
       <SyncPanel
         disabled={!canSync}
-        disabledReason={!canSync ? "Configure Canvas to enable syncing." : undefined}
+        disabledReason={!canSync ? "Configure Canvas or Ed to enable syncing." : undefined}
       />
     </section>
   );
@@ -82,18 +107,50 @@ function CourseCard({ course, now }: { course: Course; now: Date }) {
   );
 }
 
+function OtherEdCourses({ courses }: { courses: EdCourse[] }) {
+  if (courses.length === 0) return null;
+  return (
+    <section aria-labelledby="other-ed-heading" className="section">
+      <h2 id="other-ed-heading">Other Ed courses</h2>
+      <ul className="ed-course-list">
+        {courses.map((course) => (
+          <li key={course.id}>
+            <NextLink href={`/ed/${course.id}`}>{course.code ?? course.name}</NextLink>
+            {course.code && course.name !== course.code ? (
+              <span className="muted small"> · {course.name}</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default async function HomePage() {
   const now = new Date();
-  const [healthy, statusResult, upcomingResult, coursesResult, notificationsResult] =
-    await Promise.all([
-      getHealth(),
-      getCanvasStatus(),
-      getUpcoming(10),
-      getCourses(),
-      getNotifications({ unreadOnly: true, limit: 1 }),
-    ]);
+  const [
+    healthy,
+    statusResult,
+    upcomingResult,
+    coursesResult,
+    notificationsResult,
+    edStatusResult,
+    edCoursesResult,
+  ] = await Promise.all([
+    getHealth(),
+    getCanvasStatus(),
+    getUpcoming(10),
+    getCourses(),
+    getNotifications({ unreadOnly: true, limit: 1 }),
+    getEdStatus(),
+    getEdCourses(),
+  ]);
 
   const status = statusResult.ok ? statusResult.data : null;
+  const edStatus = edStatusResult.ok ? edStatusResult.data : null;
+  const otherEdCourses = edCoursesResult.ok
+    ? edCoursesResult.data.courses.filter((course) => course.canvas_course_id === null)
+    : [];
   const unreadCount = notificationsResult.ok ? notificationsResult.data.unread_count : null;
   const backendError = !statusResult.ok
     ? statusResult.message
@@ -106,7 +163,8 @@ export default async function HomePage() {
   const upcoming = upcomingResult.ok ? upcomingResult.data.upcoming : [];
   const overdue = upcomingResult.ok ? upcomingResult.data.overdue : [];
   const courses = coursesResult.ok ? coursesResult.data.courses : [];
-  const neverSynced = status !== null && !status.last_synced_at && courses.length === 0;
+  const neverSynced =
+    status !== null && !status.last_synced_at && !edStatus?.last_synced_at && courses.length === 0;
   const [current, ...rest] = upcoming;
 
   return (
@@ -125,7 +183,7 @@ export default async function HomePage() {
         </div>
 
         {backendError ? <BackendDown message={backendError} /> : null}
-        <CanvasStatusBox status={status} />
+        <CanvasStatusBox status={status} edStatus={edStatus} />
 
         {neverSynced ? (
           <EmptyState title="Nothing here yet">
@@ -191,6 +249,8 @@ export default async function HomePage() {
             )}
           </section>
         ) : null}
+
+        <OtherEdCourses courses={otherEdCourses} />
       </main>
     </>
   );

@@ -17,7 +17,7 @@ ITEM_KEYS = {
     "id", "kind", "course_id", "course_name", "title", "text", "html_url", "due_at", "posted_at", "action",
     "completed", "missing", "points_possible", "author", "links", "first_seen_at", "updated_at", "platform",
 }
-COURSE_KEYS = {"id", "name", "course_code", "synced_at", "open_count", "next_due_at", "unread_count"}
+COURSE_KEYS = {"id", "name", "course_code", "synced_at", "open_count", "next_due_at", "unread_count", "ed_course_id"}
 
 
 class ApiTestCase(unittest.TestCase):
@@ -64,7 +64,7 @@ class UnconfiguredApiTests(ApiTestCase):
         self.assertIn("CANVAS_BASE_URL", response.json()["detail"])
 
     def test_health_reports_latest_schema(self):
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "schema_version": 4})
+        self.assertEqual(self.client.get("/health").json(), {"status": "ok", "schema_version": 5})
 
     def test_empty_lists_and_404s(self):
         self.assertEqual(self.client.get("/api/courses").json(), {"courses": []})
@@ -172,7 +172,7 @@ class LiveApiTests(ApiTestCase):
         self.assertEqual(listing["unread_count"], 2)
         self.assertEqual([n["type"] for n in listing["notifications"]], ["due_date_changed", "new_announcement"])
         notification = listing["notifications"][0]
-        self.assertEqual(set(notification), {"id", "type", "message", "created_at", "read_at", "due_at", "item"})
+        self.assertEqual(set(notification), {"id", "type", "message", "created_at", "read_at", "due_at", "item", "ed_thread", "ed_course"})
         self.assertEqual(notification["due_at"], notification["item"]["due_at"])
         self.assertRegex(notification["due_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         self.assertIsNone(listing["notifications"][1]["due_at"])  # announcement

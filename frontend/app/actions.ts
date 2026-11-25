@@ -6,12 +6,12 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   runSync,
-  type SyncSummary,
+  type CombinedSyncSummary,
 } from "./_lib/api";
 
 export type SyncState =
   | { status: "idle" }
-  | { status: "done"; summary: SyncSummary }
+  | { status: "done"; summary: CombinedSyncSummary }
   | { status: "error"; message: string };
 
 export async function syncNow(_previous: SyncState): Promise<SyncState> {

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import {
   getCourse,
+  getCourseEd,
   getCourseItems,
   getNotifications,
   type Item,
@@ -18,6 +19,7 @@ import {
   Paragraphs,
   SiteHeader,
 } from "../../components/ui";
+import { EdThreadList } from "../../components/EdThreads";
 
 export const dynamic = "force-dynamic";
 
@@ -52,12 +54,13 @@ export default async function CoursePage({
   const courseId = Number(id);
   const now = new Date();
 
-  const [courseResult, assignmentsResult, announcementsResult, notificationsResult] =
+  const [courseResult, assignmentsResult, announcementsResult, notificationsResult, edResult] =
     await Promise.all([
       getCourse(courseId),
       getCourseItems(courseId, "assignment"),
       getCourseItems(courseId, "announcement"),
       getNotifications({ unreadOnly: true, limit: 1 }),
+      getCourseEd(courseId),
     ]);
 
   if (!courseResult.ok && courseResult.status === 404) notFound();
@@ -83,6 +86,8 @@ export default async function CoursePage({
   const todo = assignments.filter((item) => !item.completed);
   const done = assignments.filter((item) => item.completed);
   const announcements = announcementsResult.ok ? announcementsResult.data.items : [];
+  // Shown only for a course with a matched Ed course; an Ed read error hides it too.
+  const ed = edResult.ok && edResult.data.ed_course ? edResult.data : null;
 
   return (
     <>
@@ -160,6 +165,18 @@ export default async function CoursePage({
             </EmptyState>
           )}
         </section>
+
+        {ed && ed.ed_course ? (
+          <section aria-labelledby="ed-heading" className="section">
+            <div className="section-title-row">
+              <h2 id="ed-heading">Ed Discussion</h2>
+              <ExternalLink href={ed.ed_course.url} className="section-link">
+                Open Ed course
+              </ExternalLink>
+            </div>
+            <EdThreadList threads={ed.threads} now={now} />
+          </section>
+        ) : null}
       </main>
     </>
   );

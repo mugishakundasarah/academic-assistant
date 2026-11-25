@@ -9,7 +9,10 @@ without notice:
   "name", "status", ...}, "role": {...}}]}``
 * ``GET /api/courses/{id}/threads?limit=&offset=&sort=new``:
   ``{"threads": [{"id", "number", "type", "title", "category", "created_at",
-  "is_pinned", "is_answered", ...}]}``
+  "updated_at", "is_pinned", "is_answered", ...}]}``. The docs describe list
+  entries as Thread objects, which also carry ``document``/``content``, but do
+  not confirm the body is always present in the list, so callers that need
+  text treat it as optional (``with_body=True``).
 * ``GET /api/threads/{id}?view=1``: ``{"thread": {..., "course_id",
   "document", "content", "accepted_id", "answers": [{"id", "user_id",
   "document", "content", "is_endorsed", "is_anonymous", "created_at"}]},
@@ -45,9 +48,17 @@ _BLOCK_TAGS = frozenset({
 })
 
 
-def thread_url(region: str, course_id: int, thread_id: int) -> str:
+WEB_ORIGIN = "https://edstem.org"
+
+
+def course_url(region: str, course_id: int, origin: str = WEB_ORIGIN) -> str:
+    """The Ed web page for a course's discussion board."""
+    return f"{origin}/{region}/courses/{course_id}/discussion"
+
+
+def thread_url(region: str, course_id: int, thread_id: int, origin: str = WEB_ORIGIN) -> str:
     """The Ed web page for a thread."""
-    return f"https://edstem.org/{region}/courses/{course_id}/discussion/{thread_id}"
+    return f"{course_url(region, course_id, origin)}/{thread_id}"
 
 
 class _TextExtractor(HTMLParser):
@@ -144,6 +155,9 @@ def _records(data: dict, key: str, what: str) -> list[dict]:
 
 
 class EdClient:
+    # Origin of the Ed web pages that links point to (the demo client overrides it).
+    web_origin = WEB_ORIGIN
+
     def __init__(self, token: str, region: str = "us"):
         region = (region or "us").strip().lower()
         if region not in REGIONS:
@@ -175,8 +189,16 @@ class EdClient:
             })
         return result
 
-    def threads(self, course_id: int, limit: int = 20) -> list[dict]:
-        """Return up to ``limit`` (at most ``MAX_THREADS``) recent threads, newest first."""
+    def course_url(self, course_id: int) -> str:
+        return course_url(self.region, course_id, self.web_origin)
+
+    def threads(self, course_id: int, limit: int = 20, with_body: bool = False) -> list[dict]:
+        """Return up to ``limit`` (at most ``MAX_THREADS``) recent threads, newest first.
+
+        With ``with_body`` each summary also has ``updated_at`` and ``text``:
+        the plain text when the list entry carries ``document`` or
+        ``content``, else ``None`` (fetch it with ``thread()``).
+        """
         _check_id(course_id, "course")
         if type(limit) is not int or limit <= 0:
             raise ValueError("Ed thread limit must be positive")
@@ -191,7 +213,7 @@ class EdClient:
             query = urlencode({"limit": size, "offset": offset, "sort": "new"})
             page = _records(self._get(f"/api/courses/{course_id}/threads?{query}", "threads"), "threads", "threads")
             for record in page:
-                summary = self._summary(record, course_id)
+                summary = self._summary(record, course_id, with_body)
                 # Offset pages can overlap when new threads arrive between requests.
                 if summary is not None and summary["id"] not in seen:
                     seen.add(summary["id"])
@@ -245,16 +267,16 @@ class EdClient:
             "category": _str(thread.get("category")),
             "created_at": _time(thread.get("created_at")),
             "text": body_text(thread),
-            "url": thread_url(self.region, course_id, thread["id"]) if course_id else None,
+            "url": thread_url(self.region, course_id, thread["id"], self.web_origin) if course_id else None,
             "answers": result_answers,
         }
 
-    def _summary(self, record: dict, course_id: int) -> dict | None:
+    def _summary(self, record: dict, course_id: int, with_body: bool = False) -> dict | None:
         thread_id = _id(record.get("id"))
         if thread_id is None:
             return None
         number = record.get("number")
-        return {
+        summary = {
             "id": thread_id,
             "number": number if type(number) is int else None,
             "title": _str(record.get("title")) or "Untitled thread",
@@ -263,8 +285,13 @@ class EdClient:
             "created_at": _time(record.get("created_at")),
             "is_pinned": _flag(record.get("is_pinned")),
             "is_answered": _flag(record.get("is_answered")),
-            "url": thread_url(self.region, course_id, thread_id),
+            "url": thread_url(self.region, course_id, thread_id, self.web_origin),
         }
+        if with_body:
+            has_body = isinstance(record.get("document"), str) or isinstance(record.get("content"), str)
+            summary["updated_at"] = _time(record.get("updated_at"))
+            summary["text"] = body_text(record) if has_body else None
+        return summary
 
     def _get(self, path: str, what: str) -> dict:
         # Paths are built here from validated integers, never from response

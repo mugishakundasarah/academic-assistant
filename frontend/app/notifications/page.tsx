@@ -12,26 +12,16 @@ const TYPE_LABELS: Record<Notification["type"], string> = {
   new_assignment: "New assignment",
   due_date_changed: "Due date changed",
   assignment_updated: "Assignment updated",
+  ed_announcement: "Ed announcement",
 };
 
-function NotificationRow({ notification, now }: { notification: Notification; now: Date }) {
-  const unread = notification.read_at === null;
-  const created = parseDate(notification.created_at);
+/** Date line and links for the notification's source: a Canvas item or an Ed thread. */
+function NotificationSource({ notification, now }: { notification: Notification; now: Date }) {
   const item = notification.item;
-  return (
-    <li className={`notification${unread ? " is-unread" : ""}`}>
-      <div className="notification-body">
-        <p className="notification-meta">
-          {unread ? <span className="unread-dot" aria-hidden="true" /> : null}
-          <span className="visually-hidden">{unread ? "Unread: " : "Read: "}</span>
-          <span className="notification-type">{TYPE_LABELS[notification.type] ?? "Update"}</span>
-          {created ? (
-            <time dateTime={created.toISOString()} title={formatDateTime(created, now)}>
-              {formatRelative(created, now)}
-            </time>
-          ) : null}
-        </p>
-        <p className="notification-message">{notification.message}</p>
+  const thread = notification.ed_thread;
+  if (item) {
+    return (
+      <>
         {item.kind === "assignment" && notification.due_at ? (
           <p className="notification-date">
             <DateTime value={notification.due_at} prefix="Due" now={now} />
@@ -47,6 +37,50 @@ function NotificationRow({ notification, now }: { notification: Notification; no
           </NextLink>
           <ExternalLink href={item.html_url}>Open in Canvas</ExternalLink>
         </p>
+      </>
+    );
+  }
+  if (!thread) return null;
+  const course = notification.ed_course;
+  // A matched Ed course is shown on its Canvas course page.
+  const coursePath = course?.canvas_course_id
+    ? `/courses/${course.canvas_course_id}`
+    : `/ed/${thread.ed_course_id}`;
+  const courseLabel = course ? (course.code ?? course.name) : "Ed course";
+  return (
+    <>
+      {/* The message already names the course code and the thread title. */}
+      {thread.created_at ? (
+        <p className="notification-date">
+          <DateTime value={thread.created_at} prefix="Posted" now={now} />
+        </p>
+      ) : null}
+      <p className="notification-links">
+        <NextLink href={`${coursePath}#ed-thread-${thread.id}`}>View in {courseLabel}</NextLink>
+        <ExternalLink href={thread.url}>Open in Ed</ExternalLink>
+      </p>
+    </>
+  );
+}
+
+function NotificationRow({ notification, now }: { notification: Notification; now: Date }) {
+  const unread = notification.read_at === null;
+  const created = parseDate(notification.created_at);
+  return (
+    <li className={`notification${unread ? " is-unread" : ""}`}>
+      <div className="notification-body">
+        <p className="notification-meta">
+          {unread ? <span className="unread-dot" aria-hidden="true" /> : null}
+          <span className="visually-hidden">{unread ? "Unread: " : "Read: "}</span>
+          <span className="notification-type">{TYPE_LABELS[notification.type] ?? "Update"}</span>
+          {created ? (
+            <time dateTime={created.toISOString()} title={formatDateTime(created, now)}>
+              {formatRelative(created, now)}
+            </time>
+          ) : null}
+        </p>
+        <p className="notification-message">{notification.message}</p>
+        <NotificationSource notification={notification} now={now} />
       </div>
       {unread ? (
         <form action={markRead} className="notification-action">
@@ -118,7 +152,7 @@ export default async function NotificationsPage({
                 <NextLink href="/notifications">Show all notifications</NextLink>
               ) : (
                 <>
-                  New announcements, new assignments and due date changes appear here after
+                  New announcements (Canvas and Ed), new assignments and due date changes appear here after
                   a <NextLink href="/">sync</NextLink>.
                 </>
               )}

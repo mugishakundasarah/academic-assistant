@@ -1,0 +1,11 @@
+{
+  "user": {"id": 7001, "name": "Demo Student", "email": "student@example.edu"},
+  "courses": [
+    {"course": {"id": 50106, "code": "CS106B", "name": "Programming Abstractions", "status": "active"},
+     "role": {"role": "student"}},
+    {"course": {"id": 50103, "code": "CS 103", "name": "Mathematical Foundations of Computing", "status": "active"},
+     "role": {"role": "student"}},
+    {"course": {"id": 49106, "code": "CS 106A", "name": "Programming Methodology (last year)", "status": "archived"},
+     "role": {"role": "student"}}
+  ]
+}

@@ -10,7 +10,8 @@ export type NotificationType =
   | "new_announcement"
   | "new_assignment"
   | "due_date_changed"
-  | "assignment_updated";
+  | "assignment_updated"
+  | "ed_announcement";
 
 export type Course = {
   id: number;
@@ -19,8 +20,39 @@ export type Course = {
   synced_at: string | null;
   open_count: number;
   next_due_at: string | null;
+  /** Includes unread Ed notifications of the matched Ed course. */
   unread_count: number;
+  /** Matched Ed Discussion course (same normalized course code); optional for older backends. */
+  ed_course_id?: number | null;
 };
+
+export type EdCourse = {
+  id: number;
+  code: string | null;
+  name: string;
+  /** Ed web page for the course. */
+  url: string | null;
+  synced_at: string | null;
+  canvas_course_id: number | null;
+};
+
+/** A staff-style Ed thread: an announcement from the last 30 days or a pinned thread. */
+export type EdThread = {
+  id: number;
+  ed_course_id: number;
+  title: string;
+  type: string | null;
+  category: string | null;
+  created_at: string | null;
+  is_pinned: boolean;
+  is_answered: boolean;
+  /** Plain text; may be "". */
+  text: string;
+  url: string | null;
+  first_seen_at: string;
+};
+
+export type EdCourseThreads = { ed_course: EdCourse | null; threads: EdThread[] };
 
 export type Link = { title: string; url: string; kind: "file" | "link" };
 
@@ -57,7 +89,17 @@ export type Notification = {
    * there was none. Optional so an older backend without the field still works.
    */
   due_at?: string | null;
-  item: Item;
+  /** Null for Ed notifications. */
+  item: Item | null;
+  /** Set for Ed notifications; optional for older backends. */
+  ed_thread?: EdThread | null;
+  ed_course?: EdCourse | null;
+};
+
+export type EdStatus = {
+  configured: boolean;
+  demo: boolean;
+  last_synced_at: string | null;
 };
 
 export type CanvasStatus = {
@@ -81,6 +123,20 @@ export type SyncSummary = {
   items_updated: number;
   notifications_created: number;
   errors: SyncError[];
+};
+
+export type EdSyncSummary = {
+  courses: number;
+  threads_added: number;
+  threads_updated: number;
+  notifications_created: number;
+  errors: SyncError[];
+};
+
+/** POST /api/sync: each source is null when it is not configured. */
+export type CombinedSyncSummary = {
+  canvas: SyncSummary | null;
+  ed: EdSyncSummary | null;
 };
 
 export type ApiResult<T> =
@@ -172,11 +228,28 @@ export function getCanvasStatus() {
   return request<CanvasStatus>("/api/canvas/status");
 }
 
+export function getEdStatus() {
+  return request<EdStatus>("/api/ed/status");
+}
+
+/** Syncs Canvas, then Ed, each only when configured. */
 export function runSync() {
-  return request<SyncSummary>("/api/canvas/sync", {
+  return request<CombinedSyncSummary>("/api/sync", {
     method: "POST",
     timeoutMs: SYNC_TIMEOUT_MS,
   });
+}
+
+export function getEdCourses() {
+  return request<{ courses: EdCourse[] }>("/api/ed/courses");
+}
+
+export function getEdCourse(edCourseId: number) {
+  return request<EdCourseThreads>(`/api/ed/courses/${edCourseId}`);
+}
+
+export function getCourseEd(courseId: number) {
+  return request<EdCourseThreads>(`/api/courses/${courseId}/ed`);
 }
 
 export function getCourses() {

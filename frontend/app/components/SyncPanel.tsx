@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 
+import type { CombinedSyncSummary, SyncError } from "../_lib/api";
 import { syncNow, type SyncState } from "../actions";
 
 function SubmitButton({ disabled }: { disabled: boolean }) {
@@ -21,6 +22,54 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
 
 function count(n: number, word: string) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+/** "Canvas: 3 courses, 2 new items · Ed: 2 courses, 1 new announcement" */
+function summaryLine(summary: CombinedSyncSummary) {
+  const parts: string[] = [];
+  if (summary.canvas) {
+    parts.push(
+      `Canvas: ${count(summary.canvas.courses, "course")}, ${count(summary.canvas.items_added, "new item")}`,
+    );
+  }
+  if (summary.ed) {
+    parts.push(
+      `Ed: ${count(summary.ed.courses, "course")}, ${count(summary.ed.notifications_created, "new announcement")}`,
+    );
+  }
+  return parts.join(" · ");
+}
+
+function sourceErrors(summary: CombinedSyncSummary) {
+  const errors: { source: string; error: SyncError }[] = [];
+  for (const error of summary.canvas?.errors ?? []) errors.push({ source: "Canvas", error });
+  for (const error of summary.ed?.errors ?? []) errors.push({ source: "Ed", error });
+  return errors;
+}
+
+function SyncResult({ summary }: { summary: CombinedSyncSummary }) {
+  const errors = sourceErrors(summary);
+  return (
+    <div className={errors.length ? "notice notice-warn" : "notice notice-ok"}>
+      <p>{summaryLine(summary)}</p>
+      {errors.length ? (
+        <>
+          <p>Some courses could not be synced:</p>
+          <ul>
+            {errors.map(({ source, error }, index) => (
+              <li key={index}>
+                <strong>
+                  {source}
+                  {error.course_name ? ` · ${error.course_name}` : ""}:{" "}
+                </strong>
+                {error.message}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 export function SyncPanel({
@@ -43,33 +92,7 @@ export function SyncPanel({
         <p className="muted small">{disabledReason}</p>
       ) : null}
       <div aria-live="polite" role="status" className="sync-result">
-        {state.status === "done" ? (
-          <div
-            className={
-              state.summary.errors.length ? "notice notice-warn" : "notice notice-ok"
-            }
-          >
-            <p>
-              Synced {count(state.summary.courses, "course")}:{" "}
-              {count(state.summary.items_added, "new item")},{" "}
-              {count(state.summary.items_updated, "updated item")},{" "}
-              {count(state.summary.notifications_created, "notification")}.
-            </p>
-            {state.summary.errors.length ? (
-              <>
-                <p>Some courses could not be synced:</p>
-                <ul>
-                  {state.summary.errors.map((error, index) => (
-                    <li key={index}>
-                      {error.course_name ? <strong>{error.course_name}: </strong> : null}
-                      {error.message}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-          </div>
-        ) : null}
+        {state.status === "done" ? <SyncResult summary={state.summary} /> : null}
         {state.status === "error" ? (
           <div className="notice notice-error">
             <p>Sync failed: {state.message}</p>

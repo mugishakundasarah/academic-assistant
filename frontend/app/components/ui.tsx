@@ -96,14 +96,22 @@ export function Paragraphs({ text }: { text: string }) {
   );
 }
 
-/** Assignment instructions: shown inline when short, collapsed when long. */
-export function ItemText({ text, collapseAfter }: { text: string; collapseAfter: number }) {
+/** Assignment instructions (or other text): shown inline when short, collapsed when long. */
+export function ItemText({
+  text,
+  collapseAfter,
+  summary = "Instructions",
+}: {
+  text: string;
+  collapseAfter: number;
+  summary?: string;
+}) {
   const trimmed = text.trim();
   if (!trimmed) return null;
   if (trimmed.length <= collapseAfter) return <Paragraphs text={trimmed} />;
   return (
     <details className="item-text-details">
-      <summary>Instructions</summary>
+      <summary>{summary}</summary>
       <Paragraphs text={trimmed} />
     </details>
   );

@@ -1,0 +1,70 @@
+{
+  "50106": [
+    {
+      "id": 880101, "number": 412, "type": "announcement", "category": "General",
+      "title": "Assignment 4 office hours moved to Gates B08",
+      "document": "Hi everyone,\n\nThis week's LaIR overflow hours for Assignment 4 are in Gates B08 instead of the basement.\n\nBring your laptop and your debugger questions.",
+      "created_offset_hours": 0, "updated_offset_hours": 0,
+      "is_pinned": false, "is_answered": false
+    },
+    {
+      "id": 880102, "number": 413, "type": "announcement", "category": "Exams",
+      "title": "Midterm review session recording posted",
+      "document": "The midterm review recording and slides are posted under Lectures. The practice exam solutions follow on Friday.",
+      "created_offset_hours": 0, "updated_offset_hours": 0,
+      "is_pinned": false, "is_answered": false,
+      "_demo_from_sync": 2
+    },
+    {
+      "id": 880090, "number": 380, "type": "announcement", "category": "General",
+      "title": "Section swaps are open until Friday",
+      "document": "If your section time conflicts with another class, request a swap on the section portal before Friday at 5 PM.",
+      "created_offset_hours": -240, "updated_offset_hours": -240,
+      "is_pinned": false, "is_answered": false
+    },
+    {
+      "id": 880001, "number": 3, "type": "post", "category": "General",
+      "title": "Course logistics and Ed etiquette",
+      "document": "Read this before posting.\n\nSearch before you ask, never post solution code publicly, and use private threads for questions about your own code.\n\nStaff aim to answer within 24 hours on weekdays. LaIR runs Sunday to Thursday, 7 to 11 PM.",
+      "created_offset_hours": -1500, "updated_offset_hours": -400,
+      "is_pinned": true, "is_answered": false
+    },
+    {
+      "id": 880100, "number": 411, "type": "question", "category": "Assignments",
+      "title": "Is the recursion warmup graded?",
+      "document": "Asking for a friend.",
+      "created_offset_hours": -24, "updated_offset_hours": -20,
+      "is_pinned": false, "is_answered": true
+    },
+    {
+      "id": 880050, "number": 300, "type": "announcement", "category": "General",
+      "title": "Welcome to CS 106B",
+      "document": "Welcome! The first lecture is on Monday.",
+      "created_offset_hours": -1000, "updated_offset_hours": -1000,
+      "is_pinned": false, "is_answered": false
+    }
+  ],
+  "50103": [
+    {
+      "id": 990201, "number": 210, "type": "announcement", "category": "Problem Sets",
+      "title": "Problem Set 5 checkpoint graded",
+      "document": "Checkpoint feedback is on Gradescope. Regrade requests close in one week.",
+      "created_offset_hours": 0, "updated_offset_hours": 0,
+      "is_pinned": false, "is_answered": false
+    },
+    {
+      "id": 990010, "number": 12, "type": "post", "category": "Problem Sets",
+      "title": "Problem Set 5 FAQ",
+      "_detail_document": "Q: Can we cite lecture results without proof?\nA: Yes, cite the lecture and theorem number.\n\nQ: Do we need to prove the base case of an induction separately?\nA: Always.",
+      "created_offset_hours": -900, "updated_offset_hours": -30,
+      "is_pinned": true, "is_answered": false
+    },
+    {
+      "id": 990200, "number": 209, "type": "question", "category": "Lectures",
+      "title": "Typo in lecture 14 slides?",
+      "document": "Slide 22 says 'injective' twice.",
+      "created_offset_hours": -12, "updated_offset_hours": -10,
+      "is_pinned": false, "is_answered": true
+    }
+  ]
+}

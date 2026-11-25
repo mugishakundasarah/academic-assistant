@@ -835,3 +835,30 @@ ul {
     margin-left: 0;
   }
 }
+
+/* Ed Discussion */
+
+.badge-pinned {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.section-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.section-title-row .section-link {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.ed-course-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  list-style: none;
+}
